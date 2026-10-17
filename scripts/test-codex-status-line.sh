@@ -8,7 +8,7 @@ PY=codex/status-line.py
 fail=0
 T="$(mktemp -d)"
 
-run() { HOME="$T/$1" python3 "$PY" "$2"; }
+run() { HOME="$T/$1" CODEX_HOME="" python3 "$PY" "$2"; }
 
 roundtrip() {           # roundtrip <케이스 이름> — $T/<이름>/.codex/config.toml 이 준비돼 있어야 한다 (없으면 "파일 없음" 케이스)
   local name="$1" cfg="$T/$1/.codex/config.toml"

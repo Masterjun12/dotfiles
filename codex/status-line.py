@@ -28,21 +28,21 @@ except ImportError:          # python < 3.11 — 검증 없이 줄 단위 편집
 #   model-with-reasoning, task-progress (codex-cli 0.155.1 기준)
 WANT = [
     "current-dir",
-    "git-branch",
     "model-with-reasoning",
-    "fast-mode",
-    "context-used",
-    "total-input-tokens",
-    "total-output-tokens",
-    "estimated-thread-cost",
-    "thread-credits",
+    "context-remaining",
     "five-hour-limit",
     "weekly-limit",
+    "git-branch",
+    "estimated-thread-cost",
+    "thread-credits",
+    "total-input-tokens",
+    "fast-mode",
     "codex-version",
 ]
 
 HOME = os.path.expanduser("~")
-CONFIG = os.path.join(HOME, ".codex", "config.toml")
+CODEX_DIR = os.environ.get("CODEX_HOME") if os.environ.get("CODEX_HOME") else os.path.join(HOME, ".codex")
+CONFIG = os.path.join(CODEX_DIR, "config.toml")
 BACKUP = os.path.join(HOME, ".dotfiles-backup")
 ORIG = os.path.join(BACKUP, "codex-config.toml.orig")
 ABSENT = os.path.join(BACKUP, "codex-config.toml.absent")

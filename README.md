@@ -19,8 +19,13 @@ dotfiles/
 │   └── zshrc.local.example    # 머신별 alias/함수 템플릿(placeholder) → ~/.zshrc.local (미추적) 로 복사해 사용
 ├── claude/
 │   └── statusline-command.sh  # Claude Code 하단 statusline 2줄 (경로·git·모델·컨텍스트 / 비용·캐시·한도·버전)
+├── agy/
+│   └── statusline-command.sh  # Google Antigravity(agy) CLI 하단 statusline 2줄 (동일 레이아웃/한도 연동)
 ├── codex/
 │   └── status-line.py         # Codex CLI status line — config.toml 의 [tui] status_line 키만 merge/복원
+├── ai/
+│   ├── AGENTS.md              # Claude/AGY/Codex 공통 개발 룰, 응답 형식, DB 책임, 출력 절제 SSOT
+│   └── MEMORY.example.md      # 머신별 시스템/서버 환경 메모리 템플릿 (~/.config/ai/MEMORY.md)
 └── scripts/
     ├── test-codex-status-line.sh  # codex/status-line.py 왕복 시험 (임시 HOME)
     └── test-windows-paths.sh      # Git Bash 거부·WSL 폰트 건너뛰기 시험 (임시 HOME)
@@ -29,7 +34,7 @@ dotfiles/
 ## 설치
 
 ```bash
-git clone https://github.com/LeeYudok/dotfiles.git
+git clone https://github.com/Masterjun12/dotfiles.git
 cd dotfiles && ./install.sh
 ```
 
@@ -37,14 +42,16 @@ cd dotfiles && ./install.sh
 
 | # | 단계 | 내용 |
 |---|---|---|
-| 0 | 의존성 검사 | Git Bash/MSYS/Cygwin 이면 "WSL2 에서 실행" 안내와 함께 중단. `curl`·`unzip`·`python3`, macOS 는 `brew`, Linux 는 `dnf`/`apt-get` 이 없으면 **홈 파일을 하나도 만들지 않고** 종료. `~/.claude/settings.json` 이 깨진 JSON 이거나 `~/.codex/config.toml` 을 편집할 수 없는 상태(깨진 TOML 등)여도 여기서 중단. |
+| 0 | 의존성 검사 | Git Bash/MSYS/Cygwin 이면 "WSL2 에서 실행" 안내와 함께 중단. `curl`·`unzip`·`python3`, macOS 는 `brew`, Linux 는 `dnf`/`apt-get` 이 없으면 **홈 파일을 하나도 만들지 않고** 종료. `~/.claude/settings.json`, `~/.gemini/antigravity-cli/settings.json` 이 깨진 JSON 이거나 `config.toml` 을 편집할 수 없는 상태(깨진 TOML 등)여도 여기서 중단. |
 | 1 | 패키지 설치 | macOS: brew 로 `starship eza bat zoxide fzf fd jq zsh-autosuggestions zsh-syntax-highlighting` (없을 때만). Linux: `zsh`(dnf/apt), `starship`(공식 스크립트, sudo 없으면 `~/.local/bin`), 자동완성 플러그인 2종(dnf 는 EPEL 활성화 후), `jq`(sudo 가능할 때만, 아니면 경고). |
 | 2 | starship.toml | `starship/starship.toml` → `~/.config/starship.toml` |
 | 2.5 | Nerd Fonts | GitHub 최신 릴리스에서 `JetBrainsMono`, `D2Coding` zip 을 받아 폰트 디렉터리(macOS `~/Library/Fonts`, Linux `~/.local/share/fonts` + `fc-cache`)에 설치. 폰트별 `.nerd-font-<name>-installed` 마커 파일로 재설치 방지. **WSL 에서는 건너뛰고 안내만** 한다 — [Windows (WSL2)](#windows-wsl2) 참고. |
 | 3 | zshrc | OS 에 맞는 `zsh/zshrc.*` → `~/.zshrc`. 머신별 alias/함수는 `~/.zshrc.local`(미추적) 에 두며 스크립트가 만들지 않는다 — 없으면 안내만. |
-| 4 | Claude statusline | `claude/statusline-command.sh` → `~/.claude/statusline-command.sh` (+x). 스크립트 런타임에 `jq` 필요 — 없으면 경고만. 이어서 **python3** 로 `~/.claude/settings.json` 의 `statusLine` 키만 merge (다른 키 불변, 파일 없으면 생성). 같은 디렉터리의 임시 파일에 쓰고 `os.replace` 로 교체하므로 중단돼도 원본이 깨지지 않고, 기존 파일 mode 를 보존한다. |
-| 5 | Codex status line | Codex 를 쓰는 머신(`codex` 명령 또는 `~/.codex` 존재)에서만. `codex/status-line.py apply` 로 `~/.codex/config.toml` 의 `[tui]` `status_line` 키만 merge (다른 테이블·키·주석 불변, 파일 없으면 생성). 원자적 쓰기와 mode 보존은 4 단계와 같다. |
-| 6 | 기본 셸 | `$SHELL` 이 zsh 가 아니면 `chsh -s <zsh 경로>` 안내만 (자동 변경 안 함). |
+| 4 | Claude statusline | `claude/statusline-command.sh` → `~/.claude/statusline-command.sh` (+x). `~/.claude/settings.json` 의 `statusLine` 및 `ui.footer.hideContextPercentage` 키 merge (다른 키 불변, 파일 없으면 생성). 원자적 쓰기(`os.replace`) 및 mode 보존. |
+| 5 | Antigravity statusline | `agy` 명령 또는 `~/.gemini` 존재 시 `agy/statusline-command.sh` → `~/.gemini/antigravity-cli/statusline-command.sh` (+x). `~/.gemini/antigravity-cli/settings.json` 의 `statusLine` 및 `ui.footer` 키 merge. |
+| 6 | Codex status line | Codex 를 쓰는 머신(`codex` 명령, `~/.codex`, `$CODEX_HOME` 존재)에서만. `codex/status-line.py apply` 로 `config.toml` 의 `[tui]` `status_line` 키만 merge (다른 테이블·키·주석 불변, 파일 없으면 생성). |
+| 7 | Global AI Agent Rules & Memory | `ai/AGENTS.md` → `~/.config/ai/AGENTS.md` (SSOT), 없으면 `ai/MEMORY.example.md` → `~/.config/ai/MEMORY.md` 생성. `~/.claude/CLAUDE.md`, `~/.gemini/AGENTS.md`, `~/.codex/AGENTS.md` 를 `~/.config/ai/AGENTS.md` 에 심볼릭 링크로 일괄 연결. |
+| 8 | 기본 셸 | `$SHELL` 이 zsh 가 아니면 `chsh -s <zsh 경로>` 안내만 (자동 변경 안 함). |
 
 런타임 의존성: `curl`, `unzip`, `python3`(0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행한다. `jq` 는 statusline 스크립트 런타임 전용이라 1 단계에서 자동 설치한다(Linux 는 sudo 가능할 때만).
 
@@ -65,7 +72,7 @@ wsl --install            # PowerShell(관리자). 기본 배포판 Ubuntu 설치
 ```bash
 # WSL 셸 안에서
 sudo apt-get update && sudo apt-get install -y git curl unzip python3
-git clone https://github.com/LeeYudok/dotfiles.git
+git clone https://github.com/Masterjun12/dotfiles.git
 cd dotfiles && ./install.sh
 chsh -s "$(command -v zsh)"
 ```
@@ -137,20 +144,38 @@ $1.51 5m(api 1m) │ cache 95% │ 5h 16%↺12:00  7d 48%↺05:00 │ Proactive 
 
 `install.sh` 는 스크립트를 배치하고 `~/.claude/settings.json` 의 `statusLine` 키 하나만 merge 한다. `settings.json` 전체와 `~/.claude/CLAUDE.md` 같은 개인 지침은 이 저장소가 관리하지 않는다.
 
+## Antigravity (agy) statusline
+
+`agy/statusline-command.sh` 는 Claude statusline 과 동일한 2줄 포맷(1행 디스크·모델·컨텍스트, 2행 git·한도·세션비용·버전)을 Google Antigravity CLI 환경에 맞춰 제공한다.
+- Antigravity 의 quota 페이로드(`remaining_fraction`, `0.0~1.0`)를 백분율(`5h 87% · 주간 89%`)로 계산하여 Claude 와 완전히 같은 5시간/주간 한도 게이지를 출력한다.
+- `install.sh` 는 `~/.gemini/antigravity-cli/statusline-command.sh` 를 배치하고, `settings.json` 에 `statusLine` 및 `ui.footer.hideContextPercentage = false` 키를 merge 한다.
+
 ## Codex CLI status line
 
-Codex CLI 는 Claude Code 와 달리 **외부 명령을 실행하는 status line 이 없다.** `~/.codex/config.toml` 의 `[tui]` 테이블에 내장 항목 ID 배열을 적는 방식만 지원하므로, 스크립트를 배치하는 대신 그 키 하나를 Claude statusline 과 같은 순서로 맞춘다.
+Codex CLI 는 Claude Code 와 달리 **외부 명령을 실행하는 status line 이 없다.** `~/.codex/config.toml` 의 `[tui]` 테이블에 내장 항목 ID 배열을 적는 방식만 지원하므로, 스크립트를 배치하는 대신 그 키 하나를 Claude/AGY statusline 과 같은 우선순위로 맞춘다.
 
 ```toml
 [tui]
-status_line = ["current-dir", "git-branch", "model-with-reasoning", "fast-mode", "context-used", "total-input-tokens", "total-output-tokens", "estimated-thread-cost", "thread-credits", "five-hour-limit", "weekly-limit", "codex-version"]
+status_line = ["current-dir", "model-with-reasoning", "context-remaining", "five-hour-limit", "weekly-limit", "git-branch", "estimated-thread-cost", "thread-credits", "total-input-tokens", "fast-mode", "codex-version"]
 ```
 
-위치(경로 · git 브랜치) → 모델(추론 강도 · fast 모드) → 소비(컨텍스트 사용률 · 입출력 토큰) → 비용(예상 비용 · 크레딧) → 5시간/주간 사용 한도 → CLI 버전 순으로, Claude statusline 과 같은 배열이다.
+위치(경로) → 모델명 → 컨텍스트 잔여량 → 5시간/주간 한도 → git 브랜치 → 비용/토큰/버전 순으로 배치하여, 좁은 터미널 폭에서도 핵심 정보(모델, 남은 컨텍스트 %, 사용 한도 %)가 먼저 표시된다.
 
-codex-cli 0.155.1 이 인식하는 항목 ID 는 이 밖에도 `app-name`, `project-name`, `run-state`, `thread-title`, `thread-name`, `thread-id`, `context-remaining`, `used-tokens`, `task-progress` 가 있다. 구성을 바꾸려면 `codex/status-line.py` 의 `WANT` 를 고친다(Codex 안에서 `/statusline` 으로 바꾼 값은 `install.sh` 재실행 때 덮어쓴다).
+## Global AI Agent Rules & SSOT Memory
 
-python3 표준 라이브러리에는 TOML writer 가 없어 `status_line` 키의 줄만 교체한다. python 3.11+ 이면 `tomllib` 으로 쓰기 전에 결과를 다시 파싱해 `status_line` 외에는 바뀌지 않았는지 확인하고, 다르면 쓰지 않고 중단한다. `[tui]` 테이블 표기가 아닌 설정(`tui.status_line = ...`, 인라인 테이블)은 지원하지 않는다. `config.toml` 의 나머지(모델·프로필·프로젝트 신뢰 설정 등)는 이 저장소가 관리하지 않는다.
+Claude Code, Google Antigravity, OpenAI Codex CLI 등 서로 다른 에이전트 CLI 환경에서 공통된 개발 행동 양식과 응답 품질을 유지하도록 단일 원본(SSOT) 규칙을 배포한다.
+
+- `ai/AGENTS.md` (SSOT):
+  - **공통 답장 형식**: 3~6줄 이내 짧은 개조식(`- `), 1줄 1문장, 첫 줄 직접 답, 불필요한 미사여구 제거.
+  - **DB 책임 분리**: DB 무결성 → 백엔드 계산/API → 프런트엔드 표시 3계층 엄수. 화면당 1테이블 기계적 생성 방지.
+  - **출력 절제**: 대용량 로그 통째 덤프 금지(파일 리다이렉트 후 핵심 요약), 대용량 데이터 파일 조회 시 범위 한정(`grep`, `head`).
+  - **AI 작업 방식**: 사실의 근거 명확화(확인/검증/추정/미확인), 미커밋 변경 보존, 원자적 검증.
+- `ai/MEMORY.example.md`:
+  - 머신별 서버 환경, 공용 경로, 계정/시스템 사실을 기록하는 단일 원본 메모리 템플릿 (`~/.config/ai/MEMORY.md`).
+- 심볼릭 링크 연결:
+  - `~/.claude/CLAUDE.md` → `~/.config/ai/AGENTS.md`
+  - `~/.gemini/AGENTS.md` → `~/.config/ai/AGENTS.md`
+  - `~/.codex/AGENTS.md` → `~/.config/ai/AGENTS.md` (및 `$CODEX_HOME/AGENTS.md`)
 
 ## 추적 범위
 
@@ -159,7 +184,7 @@ python3 표준 라이브러리에는 TOML writer 가 없어 `status_line` 키의
 | OS 공통 프롬프트(`starship.toml`) | 실제 호스트명·IP·SSH 포트·내부 URL |
 | OS 별 zshrc (도구가 있을 때만 켜지는 구조) | 머신별 alias/함수 → `~/.zshrc.local` |
 | placeholder 로만 채운 `zshrc.local.example` | API 키·토큰 → `~/.secrets.zsh` (mode 600) |
-| statusline 스크립트, Codex `status_line` 항목 구성 | `~/.claude/settings.json`·`~/.codex/config.toml` 전체, 개인 `CLAUDE.md` |
+| statusline 스크립트(Claude/AGY), Codex `status_line` 항목, `ai/AGENTS.md` | `~/.claude/settings.json`·`~/.codex/config.toml` 전체, 머신별 `MEMORY.md` |
 | 설치/제거 스크립트와 문서 | 머신별 적용 현황, 백업 파일(`*.bak`) |
 
 `.gitignore` 가 오른쪽 열의 파일명을 막아 두지만, 템플릿이나 문서에 실제 값을 적는 실수는 막지 못한다. 커밋 전에 `git diff --cached` 로 호스트명·IP·URL 이 들어가지 않았는지 확인한다.

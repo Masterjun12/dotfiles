@@ -2,7 +2,7 @@
 # dotfiles install — zsh + starship 표준 셸 환경 부트스트랩
 #
 # 사용법:
-#   git clone https://github.com/LeeYudok/dotfiles.git && cd dotfiles && ./install.sh
+#   git clone https://github.com/Masterjun12/dotfiles.git && cd dotfiles && ./install.sh
 #
 # 동작 (섹션 번호 = 아래 주석 번호 = README 단계 표):
 #   0.   의존성 사전 검사 — 누락 시 홈 파일을 하나도 바꾸지 않고 종료. Git Bash/MSYS/Cygwin 은 지원하지 않음(WSL2 에서 실행)
@@ -12,10 +12,15 @@
 #        WSL 에서는 건너뛰고 안내만 — 글리프는 Windows 쪽 터미널이 그리므로 폰트도 Windows 에 설치해야 한다
 #   3.   OS 에 맞는 zshrc 배치 (~/.zshrc). 머신별 alias/함수는 ~/.zshrc.local (미추적, 이 스크립트가 만들지 않음)
 #   4.   Claude Code statusline 스크립트 배치 (~/.claude/statusline-command.sh)
-#        + settings.json 의 statusLine 키만 merge (python3, 원자적 쓰기)
-#   5.   Codex CLI status line — ~/.codex/config.toml 의 [tui] status_line 키만 merge (codex/status-line.py)
-#        Codex 를 쓰는 머신(codex 명령 또는 ~/.codex 존재)에서만. 없으면 건너뜀
-#   6.   기본 셸이 zsh 가 아니면 chsh 안내
+#        + settings.json 의 statusLine 및 ui.footer 키 merge (python3, 원자적 쓰기)
+#   5.   Antigravity (agy) statusline 스크립트 배치 (~/.gemini/antigravity-cli/statusline-command.sh)
+#        + settings.json 의 statusLine 및 ui.footer 키 merge
+#   6.   Codex CLI status line — ~/.codex/config.toml 의 [tui] status_line 키만 merge (codex/status-line.py)
+#        Codex 를 쓰는 머신(codex 명령 또는 ~/.codex, $CODEX_HOME 존재)에서만. 없으면 건너뜀
+#   7.   Global AI Agent Rules & SSOT Memory
+#        - ~/.config/ai/AGENTS.md 배치 및 ~/.config/ai/MEMORY.md 초기화
+#        - ~/.claude/CLAUDE.md, ~/.gemini/AGENTS.md, ~/.codex/AGENTS.md 심볼릭 링크 연결
+#   8.   기본 셸이 zsh 가 아니면 chsh 안내
 #
 # 런타임 의존성: curl, unzip, python3 (0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행.
 #   jq 는 statusline 스크립트 런타임 전용 — 1 단계에서 brew/dnf/apt 로 자동 설치 (sudo 불가 시 경고만).
@@ -26,6 +31,7 @@
 #   - <name>.absent   : 원래 그 파일이 없었다는 표시
 #   - brew-installed.txt / pkg-installed.txt / bin-installed.txt : 이 스크립트가 새로 설치한 것만 기록
 #   - settings.json.orig : settings.json 설치 전 전체 내용 (없었으면 settings.json.absent)
+#   - gemini-settings.json.orig : ~/.gemini/antigravity-cli/settings.json 설치 전 전체 내용
 #   - codex-config.toml.orig : ~/.codex/config.toml 설치 전 전체 내용 (없었으면 codex-config.toml.absent)
 
 set -euo pipefail
@@ -51,14 +57,18 @@ fi
 if [ "${#missing[@]}" -gt 0 ]; then
   die "필수 명령 누락: ${missing[*]} — 설치 후 다시 실행 (홈 파일은 변경하지 않았음)"
 fi
-# settings.json 이 있는데 깨진 JSON 이면 4 단계에서 손댈 수 없으므로 시작 전에 막는다
+# settings.json 이 있는데 깨진 JSON 이면 4, 5 단계에서 손댈 수 없으므로 시작 전에 막는다
 if [ -f "$HOME/.claude/settings.json" ]; then
   python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$HOME/.claude/settings.json" 2>/dev/null \
     || die "$HOME/.claude/settings.json 이 올바른 JSON 이 아님 — 수동으로 고친 뒤 다시 실행 (홈 파일은 변경하지 않았음)"
 fi
-# ~/.codex/config.toml 이 깨진 TOML 이거나 [tui] 표기가 아니면 5 단계에서 손댈 수 없으므로 시작 전에 막는다
-if [ -f "$HOME/.codex/config.toml" ]; then
-  python3 codex/status-line.py check || die "$HOME/.codex/config.toml 을 편집할 수 없음 — 수동으로 고친 뒤 다시 실행 (홈 파일은 변경하지 않았음)"
+if [ -f "$HOME/.gemini/antigravity-cli/settings.json" ]; then
+  python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$HOME/.gemini/antigravity-cli/settings.json" 2>/dev/null \
+    || die "$HOME/.gemini/antigravity-cli/settings.json 이 올바른 JSON 이 아님 — 수동으로 고친 뒤 다시 실행 (홈 파일은 변경하지 않았음)"
+fi
+# ~/.codex/config.toml 이 깨진 TOML 이거나 [tui] 표기가 아니면 6 단계에서 손댈 수 없으므로 시작 전에 막는다
+if [ -f "$HOME/.codex/config.toml" ] || { [ -n "${CODEX_HOME:-}" ] && [ -f "$CODEX_HOME/config.toml" ]; }; then
+  python3 codex/status-line.py check || die "codex config.toml 을 편집할 수 없음 — 수동으로 고친 뒤 다시 실행 (홈 파일은 변경하지 않았음)"
 fi
 
 # WSL 여부 — 커널 버전 문자열에 microsoft 가 들어 있다. DOTFILES_PROC_VERSION 은 시험용(다른 파일을 읽게 한다)
@@ -73,8 +83,8 @@ mkdir -p "$BACKUP_DIR"
 # 최초 실행 시에만 원본 상태를 기록 (있으면 .orig 로 복사, 없으면 .absent 마커)
 preserve_original() {   # preserve_original <대상 경로> <기록 이름>
   local target="$1" name="$2"
-  [ -e "$BACKUP_DIR/$name.orig" ] || [ -e "$BACKUP_DIR/$name.absent" ] && return 0
-  if [ -f "$target" ]; then cp "$target" "$BACKUP_DIR/$name.orig"; else touch "$BACKUP_DIR/$name.absent"; fi
+  [ -e "$BACKUP_DIR/$name.orig" ] || [ -L "$BACKUP_DIR/$name.orig" ] || [ -e "$BACKUP_DIR/$name.absent" ] && return 0
+  if [ -e "$target" ] || [ -L "$target" ]; then cp -P "$target" "$BACKUP_DIR/$name.orig"; else touch "$BACKUP_DIR/$name.absent"; fi
 }
 
 # 파일 배치: 원본 기록 → 내용 다르면 .bak 1세대 백업 → 복사
@@ -87,6 +97,22 @@ deploy_file() {         # deploy_file <원본(레포)> <대상(홈)> <기록 이
     info "기존 $(basename "$dst") → .bak 백업"
   fi
   cp "$src" "$dst"
+}
+
+# 심볼릭 링크 배치: 원본 기록 → 다르면 .bak 1세대 백업 → 심볼릭 링크 생성
+deploy_symlink() {      # deploy_symlink <대상 심볼릭 타겟> <생성할 심볼릭 링크 경로> <기록 이름>
+  local target="$1" link="$2" name="$3"
+  mkdir -p "$(dirname "$link")"
+  preserve_original "$link" "$name"
+  if [ -L "$link" ] || [ -e "$link" ]; then
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
+      return 0
+    fi
+    cp -P "$link" "$link.bak" 2>/dev/null || true
+    rm -f "$link"
+  fi
+  ln -s "$target" "$link"
+  info "심볼릭 링크 배치: $link → $target"
 }
 
 # manifest 에 한 줄 추가 (중복 없이)
@@ -120,14 +146,18 @@ else
     fi
   }
   if [ ! -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ] || [ ! -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]; then
-    info "zsh-autosuggestions / zsh-syntax-highlighting 설치"
-    if command -v dnf >/dev/null; then
-      rpm -q epel-release >/dev/null 2>&1 || sudo dnf install -y epel-release || true
-      { sudo dnf install -y zsh-autosuggestions zsh-syntax-highlighting && record pkg-installed.txt zsh-autosuggestions && record pkg-installed.txt zsh-syntax-highlighting; } \
-        || info "경고: 자동완성 플러그인 설치 실패 (sudo/repo 확인 필요)"
-    elif command -v apt-get >/dev/null; then
-      { sudo apt-get install -y zsh-autosuggestions zsh-syntax-highlighting && record pkg-installed.txt zsh-autosuggestions && record pkg-installed.txt zsh-syntax-highlighting; } \
-        || info "경고: 자동완성 플러그인 설치 실패 (sudo/repo 확인 필요)"
+    if sudo -n true 2>/dev/null; then
+      info "zsh-autosuggestions / zsh-syntax-highlighting 설치"
+      if command -v dnf >/dev/null; then
+        rpm -q epel-release >/dev/null 2>&1 || sudo dnf install -y epel-release || true
+        { sudo dnf install -y zsh-autosuggestions zsh-syntax-highlighting && record pkg-installed.txt zsh-autosuggestions && record pkg-installed.txt zsh-syntax-highlighting; } \
+          || info "경고: 자동완성 플러그인 설치 실패 (sudo/repo 확인 필요)"
+      elif command -v apt-get >/dev/null; then
+        { sudo apt-get install -y zsh-autosuggestions zsh-syntax-highlighting && record pkg-installed.txt zsh-autosuggestions && record pkg-installed.txt zsh-syntax-highlighting; } \
+          || info "경고: 자동완성 플러그인 설치 실패 (sudo/repo 확인 필요)"
+      fi
+    else
+      info "경고: 자동완성 플러그인 없음 + sudo 불가 — 설치 건너뜀 (dnf/apt install zsh-autosuggestions zsh-syntax-highlighting)"
     fi
   fi
   # jq — statusline 런타임 전용. sudo 가 없으면 설치를 건너뛰고 경고만 (셸 환경 자체는 jq 없이도 동작)
@@ -191,7 +221,7 @@ info ".zshrc 배치 완료 ($SRC)"
 [ -f "$HOME/.zshrc.local" ] || info "참고: 머신별 alias/함수는 ~/.zshrc.local 에 (템플릿: zsh/zshrc.local.example). 없으면 건너뜀"
 
 # ── 4. Claude Code statusline ──────────────────────────────
-# 스크립트 복사 + settings.json 에 statusLine 키만 merge (다른 키는 건드리지 않음)
+# 스크립트 복사 + settings.json 에 statusLine 및 ui.footer 키 merge (다른 키는 건드리지 않음)
 deploy_file claude/statusline-command.sh "$HOME/.claude/statusline-command.sh" statusline-command.sh
 chmod +x "$HOME/.claude/statusline-command.sh"
 command -v jq >/dev/null || info "경고: statusline 스크립트는 jq 필요 — 설치 권장 (brew/dnf/apt install jq)"
@@ -236,24 +266,139 @@ if not os.path.exists(os.path.join(backup, "settings.json.orig")) and not os.pat
         atomic_write_json(os.path.join(backup, "settings.json.orig"), d)
     else:
         open(os.path.join(backup, "settings.json.absent"), "w").close()
+
+changed = False
 want = {"type": "command", "command": f"bash {home}/.claude/statusline-command.sh"}
 if d.get("statusLine") != want:
     d["statusLine"] = want
+    changed = True
+
+ui = d.setdefault("ui", {})
+if not isinstance(ui, dict):
+    ui = {}
+    d["ui"] = ui
+footer = ui.setdefault("footer", {})
+if not isinstance(footer, dict):
+    footer = {}
+    ui["footer"] = footer
+if footer.get("hideContextPercentage") is not False:
+    footer["hideContextPercentage"] = False
+    changed = True
+
+if changed:
     atomic_write_json(p, d)
-    print("[install] settings.json statusLine 키 갱신")
+    print("[install] settings.json statusLine/ui.footer 키 갱신")
 else:
-    print("[install] settings.json statusLine 이미 최신")
+    print("[install] settings.json statusLine/ui.footer 이미 최신")
 PYEOF
 info "Claude statusline 배치 완료"
 
-# ── 5. Codex CLI status line ───────────────────────────────
+# ── 5. Antigravity (agy) statusline ────────────────────────
+# 스크립트 복사 + settings.json 에 statusLine 및 ui.footer 키 merge (다른 키는 건드리지 않음)
+if command -v agy >/dev/null || [ -d "$HOME/.gemini" ]; then
+  deploy_file agy/statusline-command.sh "$HOME/.gemini/antigravity-cli/statusline-command.sh" agy-statusline-command.sh
+  chmod +x "$HOME/.gemini/antigravity-cli/statusline-command.sh"
+  python3 - <<'PYEOF'
+import json, os, sys, tempfile
+home = os.path.expanduser("~")
+p = os.path.join(home, ".gemini", "antigravity-cli", "settings.json")
+backup = os.path.join(home, ".dotfiles-backup")
+
+def atomic_write_json(path, obj):
+    d = os.path.dirname(path)
+    os.makedirs(d, exist_ok=True)
+    mode = os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o600
+    fd, tmp = tempfile.mkstemp(prefix=".settings.", suffix=".tmp", dir=d)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2); f.write("\n")
+            f.flush(); os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try: os.unlink(tmp)
+        except OSError: pass
+        raise
+
+d = {}
+existed = os.path.exists(p)
+if existed:
+    try:
+        with open(p) as f:
+            d = json.load(f)
+    except ValueError as e:
+        print(f"[install] 오류: {p} 이 올바른 JSON 이 아님 ({e}) — 원본을 건드리지 않고 중단", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(d, dict):
+        print(f"[install] 오류: {p} 최상위가 객체가 아님 — 원본을 건드리지 않고 중단", file=sys.stderr)
+        sys.exit(1)
+
+orig_p = os.path.join(backup, "gemini-settings.json.orig")
+absent_p = os.path.join(backup, "gemini-settings.json.absent")
+if not os.path.exists(orig_p) and not os.path.exists(absent_p):
+    if existed:
+        atomic_write_json(orig_p, d)
+    else:
+        open(absent_p, "w").close()
+
+changed = False
+want_cmd = {"type": "command", "command": f"bash {home}/.gemini/antigravity-cli/statusline-command.sh"}
+if d.get("statusLine") != want_cmd:
+    d["statusLine"] = want_cmd
+    changed = True
+
+ui = d.setdefault("ui", {})
+if not isinstance(ui, dict):
+    ui = {}
+    d["ui"] = ui
+footer = ui.setdefault("footer", {})
+if not isinstance(footer, dict):
+    footer = {}
+    ui["footer"] = footer
+if footer.get("hideContextPercentage") is not False:
+    footer["hideContextPercentage"] = False
+    changed = True
+
+if changed:
+    atomic_write_json(p, d)
+    print("[install] agy settings.json statusLine/ui.footer 키 갱신")
+else:
+    print("[install] agy settings.json statusLine/ui.footer 이미 최신")
+PYEOF
+  info "Antigravity (agy) statusline 배치 완료"
+fi
+
+# ── 6. Codex CLI status line ───────────────────────────────
 # Codex 는 외부 명령 status line 이 없어 스크립트 대신 config.toml 의 [tui] status_line 키만 merge (다른 키는 건드리지 않음)
-if command -v codex >/dev/null || [ -d "$HOME/.codex" ]; then
+if command -v codex >/dev/null || [ -d "$HOME/.codex" ] || [ -n "${CODEX_HOME:-}" ]; then
   python3 codex/status-line.py apply
   info "Codex status line 배치 완료"
 fi
 
-# ── 6. 기본 셸 ─────────────────────────────────────────────
+# ── 7. Global AI Agent Rules & SSOT Memory ──────────────────
+# ~/.config/ai/AGENTS.md 를 단일 원본(SSOT)으로 배치하고 각 에이전트 경로에 심볼릭 링크
+deploy_file ai/AGENTS.md "$HOME/.config/ai/AGENTS.md" ai-agents.md
+if [ ! -f "$HOME/.config/ai/MEMORY.md" ]; then
+  deploy_file ai/MEMORY.example.md "$HOME/.config/ai/MEMORY.md" ai-memory.md
+  info "새 MEMORY.md 템플릿 생성 (~/.config/ai/MEMORY.md)"
+else
+  info "기존 MEMORY.md 유지 (~/.config/ai/MEMORY.md)"
+fi
+
+# Claude Code: ~/.claude/CLAUDE.md -> ~/.config/ai/AGENTS.md
+deploy_symlink "$HOME/.config/ai/AGENTS.md" "$HOME/.claude/CLAUDE.md" claude-claude.md
+
+# Antigravity CLI: ~/.gemini/AGENTS.md -> ~/.config/ai/AGENTS.md
+deploy_symlink "$HOME/.config/ai/AGENTS.md" "$HOME/.gemini/AGENTS.md" gemini-agents.md
+
+# Codex CLI: ~/.codex/AGENTS.md -> ~/.config/ai/AGENTS.md
+deploy_symlink "$HOME/.config/ai/AGENTS.md" "$HOME/.codex/AGENTS.md" codex-agents.md
+if [ -n "${CODEX_HOME:-}" ] && [ "$CODEX_HOME" != "$HOME/.codex" ] && [ -d "$CODEX_HOME" ]; then
+  deploy_symlink "$HOME/.config/ai/AGENTS.md" "$CODEX_HOME/AGENTS.md" codex-home-agents.md
+fi
+info "글로벌 에이전트 규칙(AGENTS.md) 배포 및 심볼릭 링크 완료"
+
+# ── 8. 기본 셸 ─────────────────────────────────────────────
 ZSH_PATH="$(command -v zsh)"
 if [ "${SHELL:-}" != "$ZSH_PATH" ]; then
   info "기본 셸이 zsh 가 아님 → 변경하려면: chsh -s $ZSH_PATH"

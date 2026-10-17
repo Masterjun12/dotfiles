@@ -8,10 +8,12 @@
 
 1. **zsh 설정** — macOS 용(`zsh/zshrc.macos`)과 Linux 서버용(`zsh/zshrc.linux`). 같은 섹션 순서를 따르고, 외부 도구는 설치돼 있을 때만 활성화한다.
 2. **starship 프롬프트** — `starship/starship.toml`. Catppuccin Mocha 팔레트, 2줄 프롬프트, Nerd Font 글리프. OS 공통.
-3. **Claude Code statusline** — `claude/statusline-command.sh` 와, `~/.claude/settings.json` 의 `statusLine` 키 하나.
-4. **Codex CLI status line** — `~/.codex/config.toml` 의 `[tui]` `status_line` 키 하나. Codex 는 외부 명령 status line 이 없어 배치할 스크립트가 없고, `codex/status-line.py` 가 그 키만 merge/복원한다.
+3. **Claude Code statusline** — `claude/statusline-command.sh` 와, `~/.claude/settings.json` 의 `statusLine` 및 `ui.footer` 키.
+4. **Antigravity (agy) statusline** — `agy/statusline-command.sh` 와, `~/.gemini/antigravity-cli/settings.json` 의 `statusLine` 및 `ui.footer` 키.
+5. **Codex CLI status line** — `~/.codex/config.toml` 의 `[tui]` `status_line` 키. Codex 는 외부 명령 status line 이 없어 `codex/status-line.py` 가 그 키만 merge/복원한다.
+6. **Global AI Agent Rules & Memory** — `ai/AGENTS.md` (SSOT), `ai/MEMORY.example.md` (~/.config/ai/MEMORY.md 템플릿).
 
-이 넷을 `install.sh` 가 홈 디렉터리에 배치하고 `uninstall.sh` 가 설치 전 상태로 되돌린다. 프레임워크(oh-my-zsh 등)나 dotfile 매니저(stow, chezmoi)는 쓰지 않는다 — 셸 스크립트 두 개와 복사할 파일들이 전부다. 빌드·패키지·테스트 러너도 없다.
+이들을 `install.sh` 가 홈 디렉터리에 배치하고 `uninstall.sh` 가 설치 전 상태로 되돌린다. 프레임워크(oh-my-zsh 등)나 dotfile 매니저(stow, chezmoi)는 쓰지 않는다 — 셸 스크립트 두 개와 복사할 파일들이 전부다. 빌드·패키지·테스트 러너도 없다.
 
 대상 환경: macOS(Apple Silicon/Intel, Homebrew 필수), Linux(RHEL/Rocky 계열 `dnf`, Debian 계열 `apt-get`), Windows 는 WSL2 안에서만(Linux 경로를 그대로 쓴다). Git Bash/MSYS/Cygwin 은 지원하지 않고 0 단계에서 중단한다. 셸 스크립트는 bash, 배치되는 설정은 zsh.
 
@@ -19,14 +21,17 @@
 
 | 경로 | 배치 위치 | 역할 |
 |---|---|---|
-| `install.sh` | — | 부트스트랩. 의존성 검사 → 패키지 → starship.toml → Nerd Fonts → zshrc → statusline + `statusLine` 키 merge → Codex `status_line` 키 merge → chsh 안내 |
+| `install.sh` | — | 부트스트랩. 의존성 검사 → 패키지 → starship.toml → Nerd Fonts → zshrc → Claude statusline → agy statusline → Codex status line → Global AI rules → chsh 안내 |
 | `uninstall.sh` | — | `install.sh` 의 역연산. `--purge`(새로 설치한 패키지까지), `--keep-backup` |
 | `starship/starship.toml` | `~/.config/starship.toml` | 프롬프트 정의 |
 | `zsh/zshrc.macos` | `~/.zshrc` (Darwin) | brew 기반. `HOMEBREW_PREFIX` 자동 감지 |
 | `zsh/zshrc.linux` | `~/.zshrc` (그 외) | 미니멀판. 도구가 없으면 기본 프롬프트·`ls --color`·일반 `cd` 로 폴백 |
 | `zsh/zshrc.local.example` | 배치 안 함 | `~/.zshrc.local` 템플릿. 사용자가 직접 복사한다. **placeholder 만** 담는다 |
-| `claude/statusline-command.sh` | `~/.claude/statusline-command.sh` | statusLine JSON(stdin) → 두 줄 출력. `jq` 필요 |
-| `codex/status-line.py` | 배치 안 함 | `check`/`apply`/`restore`. `~/.codex/config.toml` 의 `[tui]` `status_line` 키만 줄 단위로 편집. `install.sh`·`uninstall.sh` 가 호출 |
+| `claude/statusline-command.sh` | `~/.claude/statusline-command.sh` | Claude Code statusLine JSON(stdin) → 두 줄 출력. `jq` 필요 |
+| `agy/statusline-command.sh` | `~/.gemini/antigravity-cli/statusline-command.sh` | Antigravity CLI statusline JSON(stdin) → 두 줄 출력. `jq` 필요 |
+| `codex/status-line.py` | 배치 안 함 | `check`/`apply`/`restore`. `~/.codex/config.toml` 의 `[tui]` `status_line` 키만 편집. |
+| `ai/AGENTS.md` | `~/.config/ai/AGENTS.md` | 에이전트 공통 응답 규칙, DB 책임, 출력 절제 SSOT (~/.claude, ~/.gemini, ~/.codex 심볼릭 링크) |
+| `ai/MEMORY.example.md` | `~/.config/ai/MEMORY.md` | 머신별 서버/환경 메모리 템플릿 (미추적) |
 | `scripts/test-codex-status-line.sh` | — | 위 스크립트의 임시 `HOME` 왕복 시험 |
 | `scripts/test-windows-paths.sh` | — | Git Bash 거부(어느 OS 에서나)와 WSL 폰트 건너뛰기(Linux 에서만) 시험 |
 | `.gitignore` | — | 머신별·시크릿 파일명 차단 |

@@ -30,16 +30,18 @@ BACKUP_DIR="$HOME/.dotfiles-backup"
 # ── 1. 배치 파일 복원/제거 ──────────────────────────────────
 restore_file() {        # restore_file <대상 경로> <기록 이름>
   local dst="$1" name="$2"
-  if [ -f "$BACKUP_DIR/$name.orig" ]; then
-    cp "$BACKUP_DIR/$name.orig" "$dst"
+  if [ -f "$BACKUP_DIR/$name.orig" ] || [ -L "$BACKUP_DIR/$name.orig" ]; then
+    rm -f "$dst"
+    cp -P "$BACKUP_DIR/$name.orig" "$dst"
     info "$dst ← 설치 전 원본 복원"
   elif [ -f "$BACKUP_DIR/$name.absent" ]; then
     rm -f "$dst"
     info "$dst 삭제 (설치 전에는 없던 파일)"
-  elif [ -f "$dst.bak" ]; then
-    cp "$dst.bak" "$dst"
+  elif [ -e "$dst.bak" ] || [ -L "$dst.bak" ]; then
+    rm -f "$dst"
+    cp -P "$dst.bak" "$dst"
     info "$dst ← .bak 복원 (원본 기록 없음 — 구버전 install.sh 로 설치된 경우)"
-  elif [ -f "$dst" ]; then
+  elif [ -e "$dst" ] || [ -L "$dst" ]; then
     rm -f "$dst"
     info "$dst 삭제 (원본 기록·.bak 없음)"
   fi
@@ -49,9 +51,17 @@ restore_file "$HOME/.config/starship.toml" starship.toml
 restore_file "$HOME/.zshrc" zshrc
 [ -f "$HOME/.zshrc.local" ] && info "$HOME/.zshrc.local 은 사용자 파일 — 유지 (install.sh 가 만든 것이 아님)"
 restore_file "$HOME/.claude/statusline-command.sh" statusline-command.sh
-# ~/.claude/CLAUDE.md 는 사용자 파일 — 건드리지 않는다 (구버전 install.sh 가 배치했더라도 그대로 둔다)
+restore_file "$HOME/.gemini/antigravity-cli/statusline-command.sh" agy-statusline-command.sh
+restore_file "$HOME/.config/ai/AGENTS.md" ai-agents.md
+restore_file "$HOME/.config/ai/MEMORY.md" ai-memory.md
+restore_file "$HOME/.claude/CLAUDE.md" claude-claude.md
+restore_file "$HOME/.gemini/AGENTS.md" gemini-agents.md
+restore_file "$HOME/.codex/AGENTS.md" codex-agents.md
+if [ -n "${CODEX_HOME:-}" ] && [ "$CODEX_HOME" != "$HOME/.codex" ]; then
+  restore_file "$CODEX_HOME/AGENTS.md" codex-home-agents.md
+fi
 
-# ── 2. settings.json 의 statusLine 키만 복원 (다른 키 불변, 원자적 쓰기) ──
+# ── 2. Claude settings.json 의 statusLine/ui.footer 복원 ──────
 python3 - <<'PYEOF'
 import json, os, sys, tempfile
 home = os.path.expanduser("~")
@@ -61,7 +71,6 @@ orig = os.path.join(backup, "settings.json.orig")
 absent = os.path.join(backup, "settings.json.absent")
 
 def atomic_write_json(path, obj):
-    """같은 디렉터리의 임시 파일에 쓰고 os.replace 로 교체 — 중단돼도 원본은 온전. 기존 mode 보존."""
     d = os.path.dirname(path)
     mode = os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o600
     fd, tmp = tempfile.mkstemp(prefix=".settings.", suffix=".tmp", dir=d)
@@ -93,22 +102,109 @@ if not os.path.exists(p):
 elif os.path.exists(absent):
     d = load_json(p)
     d.pop("statusLine", None)
+    if "ui" in d and isinstance(d["ui"], dict):
+        d["ui"].get("footer", {}).pop("hideContextPercentage", None)
+        if d["ui"].get("footer") == {}:
+            d["ui"].pop("footer")
+        if d["ui"] == {}:
+            d.pop("ui")
     if d:
         atomic_write_json(p, d)
-        print("[uninstall] settings.json statusLine 키 제거 (다른 키는 유지)")
+        print("[uninstall] settings.json statusLine/ui.footer 키 제거 (다른 키는 유지)")
     else:
         os.remove(p)
         print("[uninstall] settings.json 삭제 (설치 전에는 없던 파일이고 남은 키 없음)")
 else:
     d = load_json(p)
-    prev = load_json(orig).get("statusLine") if os.path.exists(orig) else None
-    if prev is None:
-        d.pop("statusLine", None)
-        print("[uninstall] settings.json statusLine 키 제거")
+    orig_d = load_json(orig) if os.path.exists(orig) else {}
+    if "statusLine" in orig_d:
+        d["statusLine"] = orig_d["statusLine"]
     else:
-        d["statusLine"] = prev
-        print("[uninstall] settings.json statusLine 키를 설치 전 값으로 복원")
+        d.pop("statusLine", None)
+    if "ui" in orig_d:
+        d["ui"] = orig_d["ui"]
+    elif "ui" in d and isinstance(d["ui"], dict):
+        d["ui"].get("footer", {}).pop("hideContextPercentage", None)
+        if d["ui"].get("footer") == {}:
+            d["ui"].pop("footer")
+        if d["ui"] == {}:
+            d.pop("ui")
     atomic_write_json(p, d)
+    print("[uninstall] settings.json statusLine/ui.footer 키를 설치 전 값으로 복원")
+PYEOF
+
+# ── 2.5. Antigravity settings.json 의 statusLine/ui.footer 복원 ─
+python3 - <<'PYEOF'
+import json, os, sys, tempfile
+home = os.path.expanduser("~")
+p = os.path.join(home, ".gemini", "antigravity-cli", "settings.json")
+backup = os.path.join(home, ".dotfiles-backup")
+orig = os.path.join(backup, "gemini-settings.json.orig")
+absent = os.path.join(backup, "gemini-settings.json.absent")
+
+def atomic_write_json(path, obj):
+    d = os.path.dirname(path)
+    mode = os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o600
+    fd, tmp = tempfile.mkstemp(prefix=".settings.", suffix=".tmp", dir=d)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2); f.write("\n")
+            f.flush(); os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try: os.unlink(tmp)
+        except OSError: pass
+        raise
+
+def load_json(path):
+    try:
+        with open(path) as f:
+            d = json.load(f)
+    except ValueError as e:
+        print(f"[uninstall] 오류: {path} 이 올바른 JSON 이 아님 ({e}) — 원본을 건드리지 않고 중단", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(d, dict):
+        print(f"[uninstall] 오류: {path} 최상위가 객체가 아님 — 원본을 건드리지 않고 중단", file=sys.stderr)
+        sys.exit(1)
+    return d
+
+if not os.path.exists(orig) and not os.path.exists(absent):
+    pass
+elif not os.path.exists(p):
+    print("[uninstall] agy settings.json 없음 — 건너뜀")
+elif os.path.exists(absent):
+    d = load_json(p)
+    d.pop("statusLine", None)
+    if "ui" in d and isinstance(d["ui"], dict):
+        d["ui"].get("footer", {}).pop("hideContextPercentage", None)
+        if d["ui"].get("footer") == {}:
+            d["ui"].pop("footer")
+        if d["ui"] == {}:
+            d.pop("ui")
+    if d:
+        atomic_write_json(p, d)
+        print("[uninstall] agy settings.json statusLine/ui.footer 키 제거 (다른 키는 유지)")
+    else:
+        os.remove(p)
+        print("[uninstall] agy settings.json 삭제 (설치 전에는 없던 파일이고 남은 키 없음)")
+else:
+    d = load_json(p)
+    orig_d = load_json(orig) if os.path.exists(orig) else {}
+    if "statusLine" in orig_d:
+        d["statusLine"] = orig_d["statusLine"]
+    else:
+        d.pop("statusLine", None)
+    if "ui" in orig_d:
+        d["ui"] = orig_d["ui"]
+    elif "ui" in d and isinstance(d["ui"], dict):
+        d["ui"].get("footer", {}).pop("hideContextPercentage", None)
+        if d["ui"].get("footer") == {}:
+            d["ui"].pop("footer")
+        if d["ui"] == {}:
+            d.pop("ui")
+    atomic_write_json(p, d)
+    print("[uninstall] agy settings.json statusLine/ui.footer 키를 설치 전 값으로 복원")
 PYEOF
 
 # ── 3. Codex config.toml 의 [tui] status_line 키만 복원 (다른 키 불변, 원자적 쓰기) ──
@@ -167,7 +263,10 @@ else
   rm -rf "$BACKUP_DIR"
 fi
 rmdir "$HOME/.claude" 2>/dev/null || true   # 비어 있을 때만 제거
+rmdir "$HOME/.gemini/antigravity-cli" 2>/dev/null || true
+rmdir "$HOME/.gemini" 2>/dev/null || true
 rmdir "$HOME/.codex" 2>/dev/null || true
+rmdir "$HOME/.config/ai" 2>/dev/null || true
 rmdir "$HOME/.config" 2>/dev/null || true
 rmdir "$FONT_DIR" 2>/dev/null || true
 
