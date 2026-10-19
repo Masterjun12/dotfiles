@@ -1,7 +1,10 @@
 #!/bin/bash
 # Antigravity CLI (agy) & Claude Code statusLine script
 input=$(cat)
-echo "$input" > /tmp/agy_statusline_payload.json 2>/dev/null
+guard="$HOME/.config/ai/hooks/session_handoff_guard.py"
+if [ -f "$guard" ]; then
+  printf '%s' "$input" | python3 "$guard" --agent agy --statusline >/dev/null 2>&1 || true
+fi
 
 RESET="\033[0m"
 BOLD="\033[1m"

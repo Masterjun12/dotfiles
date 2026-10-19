@@ -47,13 +47,45 @@ restore_file() {        # restore_file <대상 경로> <기록 이름>
   fi
   rm -f "$dst.bak"
 }
+# 새 기능은 설치 기록이 있는 파일만 되돌린다.
+python3 scripts/agent-config.py restore
+restore_managed_file() {
+  local dst="$1" name="$2"
+  if [ -e "$BACKUP_DIR/$name.orig" ] || [ -L "$BACKUP_DIR/$name.orig" ] || [ -e "$BACKUP_DIR/$name.absent" ]; then
+    restore_file "$dst" "$name"
+  fi
+}
+restore_managed_file "$HOME/.config/ai/hooks/session_handoff_guard.py" session-handoff-guard.py
+restore_managed_file "$HOME/.local/share/codex-statusbar/statusbar.py" codex-statusbar.py
+restore_managed_file "$HOME/.local/bin/codex-pretty" codex-pretty
+for setting in claude.json agy.json gemini-cli.json codex.toml; do
+  restore_managed_file "$HOME/.config/ai/settings/$setting" "agent-setting-$setting"
+done
+for src in ai/agents/claude/*.md; do
+  name="$(basename "$src")"
+  restore_managed_file "$HOME/.claude/agents/$name" "agent-claude-$name"
+done
+for src in ai/agents/codex/*.toml; do
+  name="$(basename "$src")"
+  restore_managed_file "${CODEX_HOME:-$HOME/.codex}/agents/$name" "agent-codex-$name"
+done
+for src in ai/agents/agy/*.md; do
+  name="$(basename "$src")"
+  restore_managed_file "$HOME/.gemini/config/plugins/dotfiles-agent-adapters/agents/$name" "agent-agy-$name"
+done
+restore_managed_file "$HOME/.gemini/config/plugins/dotfiles-agent-adapters/plugin.json" agent-plugin.json
 restore_file "$HOME/.config/starship.toml" starship.toml
 restore_file "$HOME/.zshrc" zshrc
 [ -f "$HOME/.zshrc.local" ] && info "$HOME/.zshrc.local 은 사용자 파일 — 유지 (install.sh 가 만든 것이 아님)"
 restore_file "$HOME/.claude/statusline-command.sh" statusline-command.sh
 restore_file "$HOME/.gemini/antigravity-cli/statusline-command.sh" agy-statusline-command.sh
 restore_file "$HOME/.config/ai/AGENTS.md" ai-agents.md
-restore_file "$HOME/.config/ai/MEMORY.md" ai-memory.md
+# 기존 메모리와 설치 후 보완된 메모리는 사용자 데이터로 보존한다.
+if [ -f "$BACKUP_DIR/ai-memory.md.absent" ] && [ -f "$HOME/.config/ai/MEMORY.md" ] && ! cmp -s ai/MEMORY.example.md "$HOME/.config/ai/MEMORY.md"; then
+  info "보완된 MEMORY.md 유지"
+else
+  restore_managed_file "$HOME/.config/ai/MEMORY.md" ai-memory.md
+fi
 restore_file "$HOME/.claude/CLAUDE.md" claude-claude.md
 restore_file "$HOME/.gemini/AGENTS.md" gemini-agents.md
 restore_file "$HOME/.codex/AGENTS.md" codex-agents.md
