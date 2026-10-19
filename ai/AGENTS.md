@@ -38,3 +38,11 @@
 - 3사 에이전트(Claude Code, Google Antigravity, OpenAI Codex)는 작업 시작 시 `~/.config/ai/MEMORY.md`를 반드시 확인하여 기확인된 서버 환경·도구 제약·인프라 경로를 파악하고 불필요한 반복 탐색을 피한다.
 - 작업 중 새로 확인된 시스템 사실(호스트 사양, 영속 마운트, 서비스 포트, 도구 바이너리 위치), 환경 설정 변경, CLI별 고유 제약 및 해결책을 발견하거나 변경했을 때는 다음 턴으로 미루지 않고 **즉시 `~/.config/ai/MEMORY.md`에 수시로 기록·갱신**한다.
 - 메모리는 다음 세션 및 다른 에이전트가 중복 탐색이나 동일 시행착오 없이 즉시 작업할 수 있도록 핵심 사실만 최신 상태로 유지한다(개인 토큰·비밀번호 등 보안 민감 정보는 절대 기록 금지).
+
+## 세션 한도 임계치 기반 자동 핸즈오프 메모리 규칙 (AGY 50% / Claude·Codex 30%)
+
+- **Antigravity (`agy`) — 잔여 한도 50% 이하 자동 핸즈오프:** 자기 세션의 컨텍스트 윈도우 또는 활성 모델 쿼터 잔여 한도가 **50% 이하**로 내려가면 전역 훅(`~/.gemini/config/hooks.json` 및 `~/.gemini/antigravity-cli/statusline-command.sh` → `~/.config/ai/hooks/session_handoff_guard.py --agent agy`)이 자동 실행되어 `~/.config/ai/handoffs/HANDOFF_agy_<session_id>.md` 및 `~/.config/ai/handoffs/LATEST_HANDOFF.md`(프로젝트 내 `.claude/memory/`가 있으면 `project_handoff_agy_<YYYYMMDD>.md` 포함)를 자동 생성한다. `[AUTO-HANDOFF TRIGGER]` 알림을 받은 AGY 세션은 즉시 현재 진행 상황·미결 이슈·검증 결과·다음 행동을 핸즈오프 메모리와 `~/.config/ai/MEMORY.md`에 요약·보완한다.
+- **OpenAI Codex (`codex`) — 잔여 한도 30% 이하 자동 핸즈오프:** 자기 세션의 컨텍스트 윈도우 또는 레이트 리밋 잔여 한도가 **30% 이하**로 내려가면 전역 훅(`~/.codex/hooks.json` → `~/.config/ai/hooks/session_handoff_guard.py --agent codex`)이 자동 실행되어 `~/.config/ai/handoffs/HANDOFF_codex_<session_id>.md` 및 `~/.config/ai/handoffs/LATEST_HANDOFF.md`(프로젝트 내 `.claude/memory/project_handoff_codex_<YYYYMMDD>.md` 포함)를 자동 생성한다. `[AUTO-HANDOFF TRIGGER]` 알림을 받은 Codex 세션은 즉시 현재 진행 상황·미결 이슈·검증 결과·다음 행동을 핸즈오프 메모리와 `~/.config/ai/MEMORY.md`에 요약·보완한다.
+- **후속 세션 인계 의무:** 새로 시작하거나 작업을 이어받는 모든 에이전트는 `~/.config/ai/MEMORY.md`와 함께 `~/.config/ai/handoffs/LATEST_HANDOFF.md`를 확인하여 직전 세션의 작업을 중복 탐색 없이 즉시 이어받는다.
+
+- **Claude Code:** 상태줄의 실제 컨텍스트 잔여량을 세션별로 기록하며, 기본 임계치 30% 이하는 UserPromptSubmit·Stop 훅에서 핸즈오프를 생성한다. AGY·Claude·Codex 임계치는 AI_HANDOFF_<AGENT>_THRESHOLD 환경변수로 바꿀 수 있다. 반복 훅은 사람이 보완한 문서를 덮어쓰지 않는다.

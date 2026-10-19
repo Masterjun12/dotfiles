@@ -20,3 +20,6 @@ __pycache__/
 
 # OS 산출물
 .DS_Store
+
+# 로컬 검증 로그·상태
+.tmp/

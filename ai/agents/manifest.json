@@ -1,0 +1,15 @@
+{
+  "roles": [
+    "db-expert",
+    "doksam-ui",
+    "frontend-build",
+    "go-expert",
+    "meeting-orchestrator",
+    "mobile-web-planner",
+    "nextjs-implementer",
+    "react-expert",
+    "skill-evolve",
+    "sqlite-expert"
+  ],
+  "note": "역할별 SKILL.md는 원본 스킬 저장소에 두며 이 저장소에는 런타임 어댑터만 관리한다."
+}

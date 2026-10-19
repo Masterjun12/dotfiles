@@ -16,10 +16,11 @@
 #   5.   Antigravity (agy) statusline 스크립트 배치 (~/.gemini/antigravity-cli/statusline-command.sh)
 #        + settings.json 의 statusLine 및 ui.footer 키 merge
 #   6.   Codex CLI status line — ~/.codex/config.toml 의 [tui] status_line 키만 merge (codex/status-line.py)
-#        Codex 를 쓰는 머신(codex 명령 또는 ~/.codex, $CODEX_HOME 존재)에서만. 없으면 건너뜀
-#   7.   Global AI Agent Rules & SSOT Memory
+#        CLI 설치 여부와 무관하게 3사 설정·어댑터를 첫 실행에 함께 준비한다.
+#   7.   Global AI Agent Rules & SSOT Memory + 3사 훅·에이전트·설정 템플릿
 #        - ~/.config/ai/AGENTS.md 배치 및 ~/.config/ai/MEMORY.md 초기화
 #        - ~/.claude/CLAUDE.md, ~/.gemini/AGENTS.md, ~/.codex/AGENTS.md 심볼릭 링크 연결
+#        - Codex 2줄 보조 표시줄(codex-pretty), 10개 역할의 런타임 어댑터, 핸즈오프 훅
 #   8.   기본 셸이 zsh 가 아니면 chsh 안내
 #
 # 런타임 의존성: curl, unzip, python3 (0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행.
@@ -71,6 +72,8 @@ if [ -f "$HOME/.codex/config.toml" ] || { [ -n "${CODEX_HOME:-}" ] && [ -f "$COD
   python3 codex/status-line.py check || die "codex config.toml 을 편집할 수 없음 — 수동으로 고친 뒤 다시 실행 (홈 파일은 변경하지 않았음)"
 fi
 
+python3 scripts/agent-config.py check || die "에이전트 훅 JSON을 병합할 수 없음 — 홈 파일 변경 전 중단"
+
 # WSL 여부 — 커널 버전 문자열에 microsoft 가 들어 있다. DOTFILES_PROC_VERSION 은 시험용(다른 파일을 읽게 한다)
 is_wsl() {
   local f="${DOTFILES_PROC_VERSION:-/proc/version}"
@@ -93,9 +96,12 @@ deploy_file() {         # deploy_file <원본(레포)> <대상(홈)> <기록 이
   mkdir -p "$(dirname "$dst")"
   preserve_original "$dst" "$name"
   if [ -f "$dst" ] && ! cmp -s "$src" "$dst"; then
-    cp "$dst" "$dst.bak"
+    rm -f "$dst.bak"
+    cp -P "$dst" "$dst.bak"
     info "기존 $(basename "$dst") → .bak 백업"
   fi
+  # 원본 스킬을 가리키는 링크의 대상을 덮어쓰지 않는다(깨진 링크도 처리).
+  if [ -L "$dst" ]; then rm -f "$dst"; fi
   cp "$src" "$dst"
 }
 
@@ -295,7 +301,7 @@ info "Claude statusline 배치 완료"
 
 # ── 5. Antigravity (agy) statusline ────────────────────────
 # 스크립트 복사 + settings.json 에 statusLine 및 ui.footer 키 merge (다른 키는 건드리지 않음)
-if command -v agy >/dev/null || [ -d "$HOME/.gemini" ]; then
+if :; then  # CLI 설치 여부와 무관하게 3사 설정을 준비한다.
   deploy_file agy/statusline-command.sh "$HOME/.gemini/antigravity-cli/statusline-command.sh" agy-statusline-command.sh
   chmod +x "$HOME/.gemini/antigravity-cli/statusline-command.sh"
   python3 - <<'PYEOF'
@@ -370,7 +376,7 @@ fi
 
 # ── 6. Codex CLI status line ───────────────────────────────
 # Codex 는 외부 명령 status line 이 없어 스크립트 대신 config.toml 의 [tui] status_line 키만 merge (다른 키는 건드리지 않음)
-if command -v codex >/dev/null || [ -d "$HOME/.codex" ] || [ -n "${CODEX_HOME:-}" ]; then
+if :; then  # 에이전트 어댑터와 함께 기본 상태줄 설정도 첫 실행에 준비한다.
   python3 codex/status-line.py apply
   info "Codex status line 배치 완료"
 fi
@@ -397,6 +403,30 @@ if [ -n "${CODEX_HOME:-}" ] && [ "$CODEX_HOME" != "$HOME/.codex" ] && [ -d "$COD
   deploy_symlink "$HOME/.config/ai/AGENTS.md" "$CODEX_HOME/AGENTS.md" codex-home-agents.md
 fi
 info "글로벌 에이전트 규칙(AGENTS.md) 배포 및 심볼릭 링크 완료"
+
+# 3사 공용 훅·설정 템플릿·역할 어댑터: 기존 사용자 설정은 키 단위로 보존한다.
+deploy_file ai/hooks/session_handoff_guard.py "$HOME/.config/ai/hooks/session_handoff_guard.py" session-handoff-guard.py
+deploy_file codex/statusbar.py "$HOME/.local/share/codex-statusbar/statusbar.py" codex-statusbar.py
+deploy_file codex/codex-pretty "$HOME/.local/bin/codex-pretty" codex-pretty
+chmod +x "$HOME/.local/bin/codex-pretty"
+for setting in claude.json agy.json gemini-cli.json codex.toml; do
+  deploy_file "settings/$setting" "$HOME/.config/ai/settings/$setting" "agent-setting-$setting"
+done
+for src in ai/agents/claude/*.md; do
+  name="$(basename "$src")"
+  deploy_file "$src" "$HOME/.claude/agents/$name" "agent-claude-$name"
+done
+for src in ai/agents/codex/*.toml; do
+  name="$(basename "$src")"
+  deploy_file "$src" "${CODEX_HOME:-$HOME/.codex}/agents/$name" "agent-codex-$name"
+done
+for src in ai/agents/agy/*.md; do
+  name="$(basename "$src")"
+  deploy_file "$src" "$HOME/.gemini/config/plugins/dotfiles-agent-adapters/agents/$name" "agent-agy-$name"
+done
+deploy_file ai/agents/plugin.json "$HOME/.gemini/config/plugins/dotfiles-agent-adapters/plugin.json" agent-plugin.json
+python3 scripts/agent-config.py apply
+info "3사 훅·역할 어댑터·설정 템플릿 배치 완료 (스킬 본문은 원본 저장소에서 설치)"
 
 # ── 8. 기본 셸 ─────────────────────────────────────────────
 ZSH_PATH="$(command -v zsh)"

@@ -1,6 +1,6 @@
 # dotfiles
 
-zsh + starship 셸 환경과 Claude Code statusline·Codex CLI status line 을 새 머신에 한 번에 맞추는 부트스트랩 저장소. macOS(Homebrew)와 Linux(dnf/apt), Windows(WSL2) 를 같은 `install.sh` 로 설치하고, `uninstall.sh` 로 설치 전 상태까지 되돌린다.
+zsh + starship 셸 환경과 AGY·Claude·Codex의 상태줄·공통 규칙·핸즈오프 훅·에이전트 어댑터를 새 머신에 맞추는 부트스트랩 저장소. macOS(Homebrew)와 Linux(dnf/apt), Windows(WSL2) 를 같은 `install.sh` 로 설치하고, `uninstall.sh` 로 설치 전 상태까지 되돌린다.
 
 어느 머신에나 그대로 적용할 수 있는 설정만 추적한다. 호스트 alias·내부 URL·API 키·개인 에이전트 지침처럼 머신이나 사람에 묶인 것은 저장소 밖(`~/.zshrc.local`, `~/.secrets.zsh`)에 둔다 — 자세한 경계는 [추적 범위](#추적-범위) 참고. 에이전트·기여자용 상세 규칙은 [AGENTS.md](AGENTS.md).
 
@@ -48,9 +48,9 @@ cd dotfiles && ./install.sh
 | 2.5 | Nerd Fonts | GitHub 최신 릴리스에서 `JetBrainsMono`, `D2Coding` zip 을 받아 폰트 디렉터리(macOS `~/Library/Fonts`, Linux `~/.local/share/fonts` + `fc-cache`)에 설치. 폰트별 `.nerd-font-<name>-installed` 마커 파일로 재설치 방지. **WSL 에서는 건너뛰고 안내만** 한다 — [Windows (WSL2)](#windows-wsl2) 참고. |
 | 3 | zshrc | OS 에 맞는 `zsh/zshrc.*` → `~/.zshrc`. 머신별 alias/함수는 `~/.zshrc.local`(미추적) 에 두며 스크립트가 만들지 않는다 — 없으면 안내만. |
 | 4 | Claude statusline | `claude/statusline-command.sh` → `~/.claude/statusline-command.sh` (+x). `~/.claude/settings.json` 의 `statusLine` 및 `ui.footer.hideContextPercentage` 키 merge (다른 키 불변, 파일 없으면 생성). 원자적 쓰기(`os.replace`) 및 mode 보존. |
-| 5 | Antigravity statusline | `agy` 명령 또는 `~/.gemini` 존재 시 `agy/statusline-command.sh` → `~/.gemini/antigravity-cli/statusline-command.sh` (+x). `~/.gemini/antigravity-cli/settings.json` 의 `statusLine` 및 `ui.footer` 키 merge. |
-| 6 | Codex status line | Codex 를 쓰는 머신(`codex` 명령, `~/.codex`, `$CODEX_HOME` 존재)에서만. `codex/status-line.py apply` 로 `config.toml` 의 `[tui]` `status_line` 키만 merge (다른 테이블·키·주석 불변, 파일 없으면 생성). |
-| 7 | Global AI Agent Rules & Memory | `ai/AGENTS.md` → `~/.config/ai/AGENTS.md` (SSOT), 없으면 `ai/MEMORY.example.md` → `~/.config/ai/MEMORY.md` 생성. `~/.claude/CLAUDE.md`, `~/.gemini/AGENTS.md`, `~/.codex/AGENTS.md` 를 `~/.config/ai/AGENTS.md` 에 심볼릭 링크로 일괄 연결. |
+| 5 | Antigravity statusline | CLI 설치 여부와 무관하게 `agy/statusline-command.sh` → `~/.gemini/antigravity-cli/statusline-command.sh` (+x). `~/.gemini/antigravity-cli/settings.json` 의 `statusLine` 및 `ui.footer` 키 merge. |
+| 6 | Codex status line | CLI 설치 여부와 무관하게 `codex/status-line.py apply` 로 `config.toml` 의 `[tui]` `status_line` 키만 merge (다른 테이블·키·주석 불변, 파일 없으면 생성). |
+| 7 | 3사 공통 규칙·메모리·훅·에이전트 | `ai/AGENTS.md` → `~/.config/ai/AGENTS.md` (SSOT), 없으면 `ai/MEMORY.example.md` → `~/.config/ai/MEMORY.md` 생성. `~/.claude/CLAUDE.md`, `~/.gemini/AGENTS.md`, `~/.codex/AGENTS.md` 를 `~/.config/ai/AGENTS.md` 에 심볼릭 링크로 일괄 연결. 핸즈오프 훅, 런타임별 역할 어댑터 10개, 설정 템플릿, `codex-pretty`를 함께 배치한다. |
 | 8 | 기본 셸 | `$SHELL` 이 zsh 가 아니면 `chsh -s <zsh 경로>` 안내만 (자동 변경 안 함). |
 
 런타임 의존성: `curl`, `unzip`, `python3`(0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행한다. `jq` 는 statusline 스크립트 런타임 전용이라 1 단계에서 자동 설치한다(Linux 는 sudo 가능할 때만).
@@ -199,3 +199,72 @@ Claude Code, Google Antigravity, OpenAI Codex CLI 등 서로 다른 에이전트
 - 머신별 일회성 설정(특정 호스트 alias 등)은 `~/.zshrc.local` 에 두고 저장소 zshrc 에는 넣지 않는다. 공통화 가능한 것만 양쪽 zshrc 에 반영.
 - `install.sh` 에 단계를 추가하면 헤더 주석과 이 README 의 단계 표를 같이 고친다. 홈에 뭔가를 새로 만들면 `uninstall.sh` 에 그 역연산도 같이 넣는다.
 - 작업은 이슈 먼저(`#N`) → `docs/`·`feat/`·`fix/`·`chore/` 브랜치 → PR.
+
+
+## 3사 설정·에이전트·핸즈오프
+
+`settings/`에는 현재 사용 중인 값 중 공개 가능한 설정만 보관한다.
+Claude의 상태줄/UI, AGY의 색상·모델·도구 권한 선택값, Codex의 모델·추론 강도·샌드박스·네트워크·공식 문서 MCP를 확인할 수 있다.
+Gemini CLI의 인증·사설 MCP, 개인 허용 명령, 프로젝트 신뢰 경로와 훅 승인 해시는 포함하지 않는다.
+설치 시 상태줄·이 저장소의 훅·AGY 플러그인 활성화만 병합하며, 모델·권한 템플릿은 `~/.config/ai/settings/`에 참고용으로 배치한다.
+`always-proceed` 등의 권한 선택값은 자동 적용하지 않는다.
+
+공통 규칙은 `ai/AGENTS.md`를 단일 원본으로 유지한다.
+`ai/agents/`에는 db-expert, sqlite-expert, go-expert, react-expert, frontend-build, doksam-ui,
+mobile-web-planner, nextjs-implementer, skill-evolve, meeting-orchestrator의 런타임 어댑터가 있다.
+Claude는 `~/.claude/agents/*.md`, Codex는 `${CODEX_HOME:-~/.codex}/agents/*.toml`,
+AGY는 `~/.gemini/config/plugins/dotfiles-agent-adapters/agents/*.md`와 플러그인 등록 키를 사용한다.
+업무 절차의 단일 원본인 각 역할의 `SKILL.md`는 원본 스킬 저장소에서 별도로 설치해야 한다.
+스킬 본문·개인 작업공간을 이 저장소로 복사하지 않으며 어댑터 파일 배치를 실제 에이전트 호출 성공으로 간주하지 않는다.
+
+핸즈오프 훅은 `ai/hooks/session_handoff_guard.py`를 배치한다.
+AGY는 컨텍스트 또는 현재 모델 쿼터 잔여량 50% 이하, Claude는 컨텍스트 30% 이하,
+Codex는 컨텍스트 또는 5시간/주간 한도 30% 이하에서 기록한다.
+`AI_HANDOFF_AGY_THRESHOLD`, `AI_HANDOFF_CLAUDE_THRESHOLD`, `AI_HANDOFF_CODEX_THRESHOLD`로 임계치를 바꿀 수 있다.
+AGY는 PreInvocation·Stop, Claude·Codex는 UserPromptSubmit·Stop에 연결한다.
+Claude·AGY 상태줄은 세션별 실제 사용량을 전달한다.
+사용량이 없을 때 추정치나 다른 세션의 최근 로그를 대신 사용하지 않는다.
+훅의 스키마·신뢰 정책은 CLI 버전에 따라 달라질 수 있으며 필요한 승인은 각 CLI에서 정상 처리한다.
+
+결과는 `~/.config/ai/handoffs/HANDOFF_<agent>_<session>.md`와 `LATEST_HANDOFF.md`에 남긴다.
+프로젝트에 `.claude/memory/`가 있으면 날짜별 인수인계도 생성한다.
+반복 훅은 보완된 Markdown을 덮어쓰지 않고 `.json`의 자동 수치만 갱신한다.
+이 경로와 `MEMORY.md`, 대화·쿼터 캐시는 로컬 자료이며 Git에 넣지 않는다.
+
+## Codex 2줄 보조 표시줄
+
+Linux/WSL에서 `tmux`가 설치되어 있으면 `codex-pretty`로 실행한다.
+`~/.local/bin`이 PATH에 없으면 `~/.local/bin/codex-pretty`를 직접 실행한다.
+원본 `codex` 실행 파일과 설정, 기존 tmux 서버는 바꾸지 않고 별도 소켓을 사용한다.
+
+```text
+ project | 6.1-sol high | main
+ CTX ████████░░ 82% | 5h ██████░░░░ 64% | 7d ████░░░░░░ 37%
+```
+
+위 수치는 모양을 보여주는 예시다.
+실제 값은 해당 창의 Codex 프로세스가 연 세션 기록에서만 읽으며 첫 사용량 이벤트 전에는 `--`를 표시한다.
+`CTX`, `5h`, `7d`의 막대는 모두 **잔여량**이고 좁은 화면에서는 길이를 줄인다.
+표시 전용 실행은 `--no-daemon`으로 세션을 분리하므로 공유 데몬 기능이 필요하면 기본 `codex`를 사용한다.
+비TTY·exec/review·help/version·remote 호출, tmux 또는 Linux `/proc`가 없는 환경에서는 원본으로 전달한다.
+`CODEX_PRETTY=0 codex-pretty`로 한 번 끄거나 `CODEX_REAL_BIN`으로 원본 실행 경로를 지정할 수 있다.
+tmux 제어키는 `Ctrl-]`이며 글자 크기는 터미널에서 조절한다.
+
+검증 명령은 로그를 파일에 저장해 실행한다.
+
+```bash
+mkdir -p .tmp
+python3 scripts/test-agent-config.py > .tmp/agent-config.log 2>&1
+python3 scripts/test-statusbar.py > .tmp/statusbar.log 2>&1
+scripts/test-codex-status-line.sh > .tmp/native-status.log 2>&1
+```
+
+설치·제거는 새로 관리하는 파일마다 최초 원본을 보관한다.
+훅 복원은 이 저장소가 추가한 항목만 제거하며 사용자가 나중에 추가한 설정·훅을 보존한다.
+기존 MEMORY.md와 설치 후 보완된 메모리·인수인계는 사용자 데이터로 보존한다.
+인증이나 권한을 자동 확대하는 플래그, 바이너리 패치, 원격 스킬 다운로드는 수행하지 않는다.
+
+스키마 근거: [Codex 훅](https://learn.chatgpt.com/docs/hooks),
+[Codex 에이전트](https://learn.chatgpt.com/docs/agent-configuration/subagents),
+[Claude 훅](https://code.claude.com/docs/en/hooks),
+[Claude 상태줄](https://code.claude.com/docs/en/statusline).

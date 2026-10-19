@@ -11,7 +11,7 @@ T="$(mktemp -d)"
 # (1) uname 을 흉내 내 MINGW 로 보이게 한다
 mkdir -p "$T/bin" "$T/mingw"
 printf '#!/bin/sh\necho MINGW64_NT-10.0-26100\n' > "$T/bin/uname"; chmod +x "$T/bin/uname"
-out="$(HOME="$T/mingw" PATH="$T/bin:$PATH" ./install.sh 2>&1)" && { echo "FAIL mingw: install.sh 가 통과함"; fail=1; }
+out="$(HOME="$T/mingw" CODEX_HOME="$T/mingw/.codex" PATH="$T/bin:$PATH" ./install.sh 2>&1)" && { echo "FAIL mingw: install.sh 가 통과함"; fail=1; }
 printf '%s\n' "$out" | grep -q 'WSL2' || { echo "FAIL mingw: WSL2 안내 없음"; fail=1; }
 [ -z "$(find "$T/mingw" -mindepth 1)" ] || { echo "FAIL mingw: 홈에 파일이 생김"; find "$T/mingw" -mindepth 1; fail=1; }
 echo "ok   mingw (거부)"
@@ -20,7 +20,7 @@ echo "ok   mingw (거부)"
 if [ "$(uname -s)" = "Linux" ]; then
   mkdir -p "$T/wsl"
   echo 'Linux version 6.6.0-microsoft-standard-WSL2 (test)' > "$T/proc-version"
-  run() { HOME="$T/wsl" DOTFILES_PROC_VERSION="$T/proc-version" "$@"; }
+  run() { HOME="$T/wsl" CODEX_HOME="$T/wsl/.codex" DOTFILES_PROC_VERSION="$T/proc-version" "$@"; }
   out="$(run ./install.sh 2>&1)" || { echo "FAIL wsl: install.sh 실패"; printf '%s\n' "$out" | tail -5; fail=1; }
   printf '%s\n' "$out" | grep -q 'WSL 감지' || { echo "FAIL wsl: 폰트 건너뜀 안내 없음"; fail=1; }
   [ ! -e "$T/wsl/.local/share/fonts" ] || { echo "FAIL wsl: 폰트 디렉터리가 생김"; fail=1; }

@@ -1,0 +1,10 @@
+{
+  "colorScheme": "tokyo night",
+  "model": "Gemini 3.8 Flash (High)",
+  "toolPermission": "always-proceed",
+  "ui": {
+    "footer": {
+      "hideContextPercentage": false
+    }
+  }
+}

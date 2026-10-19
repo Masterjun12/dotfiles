@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# 원본 Codex 설정을 유지하고 Linux/WSL TTY에서만 보조 표시줄을 연다.
+export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+exec python3 "$HOME/.local/share/codex-statusbar/statusbar.py" "$@"

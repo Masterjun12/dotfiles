@@ -1,0 +1,5 @@
+{
+  "name": "dotfiles-agent-adapters",
+  "description": "공통 스킬을 참조하는 에이전트 어댑터",
+  "version": "1.0.0"
+}
