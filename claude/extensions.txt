@@ -1,0 +1,20 @@
+# Claude Code 외부 확장 — install.sh 7.6 단계가 클론하고 ~/.claude 아래에 심볼릭 링크로 연결한다.
+# uninstall.sh 는 같은 목록으로 링크를 되돌린다. 본문은 복제하지 않고 원본 저장소에서 받는다.
+#
+# 형식: <클론 폴더 이름> <GitHub owner/repo> <저장소 안 경로> <~/.claude 아래 링크 경로>
+
+# 출력 스타일 3종 + /style 선택 명령 + 스킬 4종 (AGPL-3.0)
+attention-span alexgreensh/attention-span output-styles/attention-kind.md output-styles/attention-kind.md
+attention-span alexgreensh/attention-span output-styles/rundown.md output-styles/rundown.md
+attention-span alexgreensh/attention-span output-styles/spartan.md output-styles/spartan.md
+attention-span alexgreensh/attention-span commands/style.md commands/style.md
+attention-span alexgreensh/attention-span plugins/attention-span/skills/attention-kind skills/attention-kind
+attention-span alexgreensh/attention-span plugins/attention-span/skills/rundown skills/rundown
+attention-span alexgreensh/attention-span plugins/attention-span/skills/spartan skills/spartan
+attention-span alexgreensh/attention-span plugins/attention-span/skills/tldr skills/tldr
+
+# 코딩 실수 줄이는 지침 스킬 (MIT)
+andrej-karpathy-skills multica-ai/andrej-karpathy-skills skills/karpathy-guidelines skills/karpathy-guidelines
+
+# TypeScript 저장소별 Oxlint 규칙 설치 스킬 — 규칙 자체는 각 저장소에 vendoring 한다
+anti-slop dmmulroy/anti-slop skills/install-anti-slop skills/install-anti-slop

@@ -18,7 +18,12 @@ dotfiles/
 │   ├── zshrc.linux            # Linux 서버용 — 같은 구조의 미니멀판, 도구는 있을 때만 활성
 │   └── zshrc.local.example    # 머신별 alias/함수 템플릿(placeholder) → ~/.zshrc.local (미추적) 로 복사해 사용
 ├── claude/
-│   └── statusline-command.sh  # Claude Code 하단 statusline 2줄 (경로·git·모델·컨텍스트 / 비용·캐시·한도·버전)
+│   ├── statusline-command.sh  # Claude Code 하단 statusline 2줄 (경로·git·모델·컨텍스트 / 비용·캐시·한도·버전)
+│   └── extensions.txt         # Claude 외부 확장 목록 (출력 스타일·/style·스킬) — 7.6 단계가 클론·링크
+├── viewer/
+│   ├── fview                  # 확장자별 미리보기 변환기 (md·ipynb·docx·pdf·csv·xlsx·pptx·html·SQLite 등)
+│   ├── yazi.toml              # yazi 미리보기·Enter 열기를 fview 에 연결
+│   └── keymap.toml            # 미리보기 스크롤 키 (Shift/Ctrl + 방향키)
 ├── agy/
 │   └── statusline-command.sh  # Google Antigravity(agy) CLI 하단 statusline 2줄 (동일 레이아웃/한도 연동)
 ├── codex/
@@ -51,6 +56,8 @@ cd dotfiles && ./install.sh
 | 5 | Antigravity statusline | CLI 설치 여부와 무관하게 `agy/statusline-command.sh` → `~/.gemini/antigravity-cli/statusline-command.sh` (+x). `~/.gemini/antigravity-cli/settings.json` 의 `statusLine` 및 `ui.footer` 키 merge. |
 | 6 | Codex status line | CLI 설치 여부와 무관하게 `codex/status-line.py apply` 로 `config.toml` 의 `[tui]` `status_line` 키만 merge (다른 테이블·키·주석 불변, 파일 없으면 생성). |
 | 7 | 3사 공통 규칙·메모리·훅·에이전트 | `ai/AGENTS.md` → `~/.config/ai/AGENTS.md` (SSOT), 없으면 `ai/MEMORY.example.md` → `~/.config/ai/MEMORY.md` 생성. `~/.claude/CLAUDE.md`, `~/.gemini/AGENTS.md`, `~/.codex/AGENTS.md` 를 `~/.config/ai/AGENTS.md` 에 심볼릭 링크로 일괄 연결. 핸즈오프 훅, 런타임별 역할 어댑터 10개, 설정 템플릿, `codex-pretty`를 함께 배치한다. |
+| 7.5 | 터미널 파일 뷰어 | `yazi`·`ya`·`glow`·`chafa` 를 없을 때만 설치(macOS brew, Linux 는 GitHub 정적 바이너리 → `~/.local/bin`, 실패 시 경고만). `viewer/fview` → `~/.local/bin/fview`, `viewer/{yazi,keymap}.toml` → `~/.config/yazi/`, `ya pkg add yazi-rs/plugins:piper`. [터미널 파일 뷰어](#터미널-파일-뷰어) 참고. |
+| 7.6 | Claude 외부 확장 | `claude/extensions.txt` 의 저장소(attention-span, andrej-karpathy-skills, anti-slop)를 `DOTFILES_EXT_DIR`(기본 `~/.local/share/dotfiles-ext`)에 클론(이미 있으면 재사용)하고 `~/.claude/{output-styles,commands,skills}` 아래에 심볼릭 링크. 실제 파일·폴더가 있는 자리는 건드리지 않는다. 기본 출력 스타일은 켜지 않는다(`/style` 또는 `/config` 로 선택). |
 | 8 | 기본 셸 | `$SHELL` 이 zsh 가 아니면 `chsh -s <zsh 경로>` 안내만 (자동 변경 안 함). |
 
 런타임 의존성: `curl`, `unzip`, `python3`(0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행한다. `jq` 는 statusline 스크립트 런타임 전용이라 1 단계에서 자동 설치한다(Linux 는 sudo 가능할 때만).
@@ -88,7 +95,7 @@ Windows 사용자 프로필은 WSL 의 `$HOME` 밖이라 스크립트가 자동�
 
 ```bash
 ./uninstall.sh            # 배치 파일 복원/제거 + settings.json statusLine·Codex status_line 키 복원 + Nerd Font 제거
-./uninstall.sh --purge    # 위에 더해 install.sh 가 새로 설치한 brew/dnf/apt 패키지·starship 바이너리 제거
+./uninstall.sh --purge    # 위에 더해 install.sh 가 새로 설치한 brew/dnf/apt 패키지·바이너리(starship·yazi·glow·chafa)·클론한 확장 저장소 제거
 ./uninstall.sh --keep-backup   # ~/.dotfiles-backup 을 남김 (기본은 복원 후 삭제)
 ```
 
@@ -96,6 +103,7 @@ Windows 사용자 프로필은 WSL 의 `$HOME` 밖이라 스크립트가 자동�
 - `settings.json` 은 `statusLine` 키만 설치 전 값으로 되돌리고 다른 키(permissions/hooks/model 등)는 그대로 둔다. 설치 전에 파일이 없었고 남는 키도 없으면 파일 자체를 지운다. 쓰기는 install 과 같은 원자적 교체이며, 깨진 JSON 이면 손대지 않고 중단한다.
 - `~/.codex/config.toml` 도 `[tui]` 의 `status_line` 키만 설치 전 값으로 되돌린다. 설치 전에 키가 없었으면 키를 지우고, 그 결과 설치가 만든 `[tui]` 테이블이나 파일이 비면 같이 지운다. 설치가 Codex 단계를 건너뛴 머신에서는 아무것도 하지 않는다.
 - `~/.zshrc.local`, `~/.secrets.zsh`, `~/.claude/CLAUDE.md` 는 사용자 파일이므로 건드리지 않는다.
+- 7.5·7.6 단계의 `fview`·yazi 설정·Claude 확장 링크는 설치 기록이 있는 것만 되돌린다. piper 플러그인은 설치 표시(`yazi-piper.installed`)가 있을 때만 지우고, 클론한 확장 저장소는 `--purge` 때만 지운다.
 - 폰트는 manifest 에 적힌 파일만 지운다. manifest 없이 설치된 옛 머신은 마커만 지우고 경고를 낸다.
 - `--purge` 는 `install.sh` 가 **새로 설치했다고 기록한 것만** 제거한다. 이미 깔려 있던 starship/eza 등은 건드리지 않는다.
 - 끝나면 `~/.zshrc` 가 원본(또는 없음)으로 돌아가 zsh 기본 프롬프트로 동작한다. 기본 셸 자체는 `chsh` 로 직접 되돌린다.
@@ -177,6 +185,29 @@ Claude Code, Google Antigravity, OpenAI Codex CLI 등 서로 다른 에이전트
   - `~/.gemini/AGENTS.md` → `~/.config/ai/AGENTS.md`
   - `~/.codex/AGENTS.md` → `~/.config/ai/AGENTS.md` (및 `$CODEX_HOME/AGENTS.md`)
 
+## 터미널 파일 뷰어
+
+VS Code 없이 터미널에서 소스와 문서를 훑어보는 구성이다. `yazi` 를 실행하면 왼쪽에 폴더, 오른쪽에 미리보기가 나온다.
+
+| 형식 | 미리보기 (`fview`) | 필요한 도구 |
+|---|---|---|
+| 코드·설정·텍스트 | yazi 기본 구문 강조 | — |
+| md·markdown·mdx | 서식 렌더링 | `glow` |
+| ipynb | 설명·코드·출력을 이어 붙인 문서 | `jupyter` (nbconvert) |
+| docx·odt·rtf·epub·rst·org·tex | 문서 본문 | `pandoc` |
+| html | 본문 글자 (본문이 없으면 소스) | `w3m` |
+| pdf | 앞 30쪽 글자 | `pdftotext` (poppler) |
+| csv·tsv | 열을 맞춘 표 | `python3` |
+| xlsx·xlsm | 시트별 표 (앞 5개 시트, 60행) | `python3` + `openpyxl` |
+| pptx | 슬라이드별 글 | `python3` + `python-pptx` |
+| db·sqlite | 표 이름·행 수·열 (읽기 전용) | `sqlite3` |
+| 이미지·영상·압축 | yazi 기본 미리보기 | `chafa`, `ffmpeg`, `7z` |
+
+- 도구가 없으면 `(미리보기 도구 없음: …)` 한 줄 뒤에 원문이나 파일 정보를 보여준다. pandoc·poppler·w3m·sqlite3 등은 패키지 관리자로 따로 설치한다.
+- 키: 방향키로 목록 이동, `Shift+↑↓`(5줄)·`Ctrl+↑↓`(30줄)로 미리보기 스크롤, `Enter` 로 전체 화면(`Space`/`b` 한 화면, `g`/`G` 처음/끝, `q` 종료).
+- SSH 처럼 그림 출력을 지원하지 않는 터미널에서는 이미지가 `chafa` 문자 그림으로 나온다. Sixel·Kitty 그래픽을 지원하는 터미널이면 실제 그림으로 나온다.
+- 단독 사용: `fview <파일> [폭] [-p]`. 결과는 `~/.cache/fview` 에 캐시한다.
+
 ## 추적 범위
 
 | 추적한다 | 추적하지 않는다 |
@@ -184,7 +215,7 @@ Claude Code, Google Antigravity, OpenAI Codex CLI 등 서로 다른 에이전트
 | OS 공통 프롬프트(`starship.toml`) | 실제 호스트명·IP·SSH 포트·내부 URL |
 | OS 별 zshrc (도구가 있을 때만 켜지는 구조) | 머신별 alias/함수 → `~/.zshrc.local` |
 | placeholder 로만 채운 `zshrc.local.example` | API 키·토큰 → `~/.secrets.zsh` (mode 600) |
-| statusline 스크립트(Claude/AGY), Codex `status_line` 항목, `ai/AGENTS.md` | `~/.claude/settings.json`·`~/.codex/config.toml` 전체, 머신별 `MEMORY.md` |
+| statusline 스크립트(Claude/AGY), Codex `status_line` 항목, `ai/AGENTS.md`, 뷰어 설정, 외부 확장 목록 | `~/.claude/settings.json`·`~/.codex/config.toml` 전체, 머신별 `MEMORY.md` |
 | 설치/제거 스크립트와 문서 | 머신별 적용 현황, 백업 파일(`*.bak`) |
 
 `.gitignore` 가 오른쪽 열의 파일명을 막아 두지만, 템플릿이나 문서에 실제 값을 적는 실수는 막지 못한다. 커밋 전에 `git diff --cached` 로 호스트명·IP·URL 이 들어가지 않았는지 확인한다.

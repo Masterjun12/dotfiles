@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# fview — 터미널 파일 미리보기. 확장자별로 사람이 읽는 형태로 변환해 출력한다.
+#
+# 사용: fview <파일> [폭] [-p]
+#   -p 를 주면 전체 화면 페이저(glow 또는 less)로 연다. 없으면 표준출력으로 내보낸다.
+#   yazi 의 piper 미리보기와 Enter 열기에서 함께 쓴다 (viewer/yazi.toml).
+#
+# 형식별 변환 (도구가 없으면 안내 한 줄 뒤에 원문 또는 파일 정보를 보여준다):
+#   md·markdown·mdx → glow          ipynb → jupyter nbconvert → glow
+#   docx·odt·rtf·epub·rst·org·tex → pandoc → glow
+#   html·htm·xhtml → w3m 본문 (본문이 없으면 소스)
+#   pdf → pdftotext 앞 30쪽          csv·tsv → 정렬된 표 (python3)
+#   xlsx·xlsm → 시트별 표 (python3 + openpyxl)   pptx → 슬라이드별 글 (python3 + python-pptx)
+#   db·sqlite·sqlite3 → 표 이름·행 수·열 (sqlite3, 읽기 전용)
+#   그 밖의 바이너리 → 파일 종류 + 앞 1KB 16진수, 텍스트 → 원문
+# 표준출력 결과는 ${XDG_CACHE_HOME:-~/.cache}/fview 에 (경로·수정시각·폭) 기준으로 캐시한다.
+set -o pipefail
+f="${1:-}"; w="${2:-100}"; pager="${3:-}"
+[ -f "$f" ] || { echo "파일 없음: $f"; exit 1; }
+f="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+cd / || exit 1   # 표준입력 python 스크립트가 현재 폴더의 모듈을 읽지 않게 한다
+ext="$(printf '%s' "${f##*.}" | tr '[:upper:]' '[:lower:]')"
+
+has()   { command -v "$1" >/dev/null 2>&1; }
+pymod() { has python3 && python3 -c "import $1" 2>/dev/null; }
+plain() { if [ "$pager" = "-p" ]; then less -R; else cat; fi; }
+markdown() {
+  if ! has glow; then plain; return; fi
+  if [ "$pager" = "-p" ]; then glow -s dark -w "$w" -p -; else CLICOLOR_FORCE=1 glow -s dark -w "$w" -; fi
+}
+missing() { { printf '(미리보기 도구 없음: %s)\n\n' "$1"; fallback; } | plain; }
+fallback() {
+  if file -b --mime "$f" 2>/dev/null | grep -q 'charset=binary'; then
+    file -b "$f"; echo "────"
+    if has xxd; then xxd -l 1024 "$f"; else od -A x -t x1z -N 1024 "$f"; fi
+  else
+    cat "$f"
+  fi
+}
+nofig() { sed -E 's/!\[[^]]*\]\([^)]*\)/[그림]/g'; }
+
+# python3 표 출력 공용부: 동아시아 문자를 2칸으로 계산해 열을 맞춘다
+PYTABLE='
+import unicodedata
+def dw(s): return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+def cut(s, n):
+    out, k = "", 0
+    for c in s:
+        k += dw(c)
+        if k > n: return out + "…"
+        out += c
+    return out
+def table(rows, cell, head=False):
+    rows = [[cut(str(c).replace("\n", " ").strip(), cell) for c in r] for r in rows]
+    n = max(len(r) for r in rows)
+    rows = [r + [""] * (n - len(r)) for r in rows]
+    ws = [max(dw(r[i]) for r in rows) for i in range(n)]
+    for j, r in enumerate(rows):
+        print(" │ ".join(c + " " * (ws[i] - dw(c)) for i, c in enumerate(r)))
+        if head and j == 0: print("─┼─".join("─" * x for x in ws))
+'
+
+render() {
+  case "$ext" in
+    md|markdown|mdx)
+      markdown < "$f" ;;
+    ipynb)
+      if has jupyter; then
+        jupyter nbconvert --to markdown --stdout --log-level=ERROR "$f" 2>/dev/null | nofig | markdown
+      else missing jupyter; fi ;;
+    docx|odt|rtf|epub|rst|org|tex)
+      if has pandoc; then pandoc --wrap=none -t gfm-raw_html "$f" 2>/dev/null | nofig | markdown
+      else missing pandoc; fi ;;
+    html|htm|xhtml)
+      # 본문 글자가 없는 스크립트 묶음 화면은 소스를 그대로 보여준다
+      t=""; has w3m && t="$(w3m -dump -T text/html -cols "$w" "$f" 2>/dev/null)"
+      if [ -n "${t//[[:space:]]/}" ]; then printf '%s\n' "$t" | plain; else plain < "$f"; fi ;;
+    pdf)
+      if has pdftotext; then
+        { has pdfinfo && pdfinfo "$f" 2>/dev/null | grep -E '^(Title|Pages|Page size):'; echo "────"
+          pdftotext -layout -l 30 "$f" - 2>/dev/null; } | plain
+      else missing pdftotext; fi ;;
+    csv|tsv)
+      if has python3; then
+        python3 - "$f" "$ext" <<PY | plain
+$PYTABLE
+import csv, sys
+with open(sys.argv[1], newline="", encoding="utf-8-sig", errors="replace") as fh:
+    rows = [r for _, r in zip(range(300), csv.reader(fh, delimiter="\t" if sys.argv[2] == "tsv" else ","))]
+if rows: table(rows, 24, head=True)
+PY
+      else plain < "$f"; fi ;;
+    xlsx|xlsm)
+      if pymod openpyxl; then
+        python3 - "$f" <<PY | plain
+$PYTABLE
+import sys, openpyxl
+wb = openpyxl.load_workbook(sys.argv[1], read_only=True, data_only=True)
+print("시트:", ", ".join(wb.sheetnames))
+for ws in wb.worksheets[:5]:
+    rows = [["" if v is None else v for v in r[:15]] for r in ws.iter_rows(max_row=60, values_only=True)]
+    rows = [r for r in rows if any(str(c).strip() for c in r)]
+    print("\n■ %s (%s행 × %s열)" % (ws.title, ws.max_row, ws.max_column))
+    if rows: table(rows, 20)
+    else: print("(빈 시트)")
+PY
+      else missing "python3 openpyxl"; fi ;;
+    pptx)
+      if pymod pptx; then
+        python3 - "$f" <<'PY' | markdown
+import sys
+from pptx import Presentation
+for i, s in enumerate(Presentation(sys.argv[1]).slides, 1):
+    print("## 슬라이드 %d\n" % i)
+    for sh in s.shapes:
+        if sh.has_text_frame:
+            for p in sh.text_frame.paragraphs:
+                t = "".join(r.text for r in p.runs).strip()
+                if t: print("  " * p.level + "- " + t)
+    print()
+PY
+      else missing "python3 python-pptx"; fi ;;
+    db|sqlite|sqlite3)
+      if ! head -c 16 "$f" | grep -q 'SQLite format 3'; then fallback
+      elif has sqlite3; then
+        u="file:$f?mode=ro&immutable=1"
+        { echo "SQLite DB"; echo "────"
+          sqlite3 "$u" "select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name" |
+          while IFS= read -r t; do
+            echo "■ $t ($(sqlite3 "$u" "select count(*) from \"$t\"")행)"
+            sqlite3 "$u" "select '  '||name||' '||type||case when pk then ' PK' else '' end from pragma_table_info('$t')"
+          done; } | plain
+      else missing sqlite3; fi ;;
+    *)
+      fallback | plain ;;
+  esac
+}
+
+if [ "$pager" = "-p" ]; then render; exit; fi
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/fview"; mkdir -p "$cache"
+key="$(printf '%s|%s|%s' "$f" "$(date -r "$f" +%s)" "$w" | cksum | tr ' ' '-')"
+if [ ! -s "$cache/$key" ]; then render > "$cache/$key.tmp"; mv -f "$cache/$key.tmp" "$cache/$key"; fi
+cat "$cache/$key"
