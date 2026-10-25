@@ -39,7 +39,7 @@ dotfiles/
 ## 설치
 
 ```bash
-git clone https://github.com/Masterjun12/dotfiles.git
+git clone https://github.com/wooring12/dotfiles.git
 cd dotfiles && ./install.sh
 ```
 
@@ -79,7 +79,7 @@ wsl --install            # PowerShell(관리자). 기본 배포판 Ubuntu 설치
 ```bash
 # WSL 셸 안에서
 sudo apt-get update && sudo apt-get install -y git curl unzip python3
-git clone https://github.com/Masterjun12/dotfiles.git
+git clone https://github.com/wooring12/dotfiles.git
 cd dotfiles && ./install.sh
 chsh -s "$(command -v zsh)"
 ```

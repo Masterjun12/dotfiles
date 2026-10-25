@@ -2,7 +2,7 @@
 # dotfiles install — zsh + starship 표준 셸 환경 부트스트랩
 #
 # 사용법:
-#   git clone https://github.com/Masterjun12/dotfiles.git && cd dotfiles && ./install.sh
+#   git clone https://github.com/wooring12/dotfiles.git && cd dotfiles && ./install.sh
 #
 # 동작 (섹션 번호 = 아래 주석 번호 = README 단계 표):
 #   0.   의존성 사전 검사 — 누락 시 홈 파일을 하나도 바꾸지 않고 종료. Git Bash/MSYS/Cygwin 은 지원하지 않음(WSL2 에서 실행)
