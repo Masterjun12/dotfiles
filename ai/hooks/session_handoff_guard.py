@@ -386,7 +386,8 @@ def main():
             msg = (
                 f"[AUTO-HANDOFF TRIGGER: AGY 잔여 한도 {info['effective_rem']:.1f}% <= 50%] "
                 f"자동 핸즈오프 스냅샷이 `{handoff_path}` 및 `~/.config/ai/handoffs/LATEST_HANDOFF.md`에 생성되었습니다. "
-                f"이번 턴에 현재 작업 진행 상황, 미결 과제, 검증 결과, 다음 단계를 핸즈오프 파일과 `~/.config/ai/MEMORY.md`에 즉시 요약·갱신하십시오."
+                f"이번 턴에 현재 작업 진행 상황, 미결 과제, 검증 결과, 다음 단계를 핸즈오프 파일과 `~/.config/ai/MEMORY.md`에 즉시 요약·갱신하고, "
+                f"답변 마지막 줄에 `[자동 핸즈오프 알림: 잔여 한도 {info['effective_rem']:.1f}% 도달로 공용 허브에 인계를 완료했습니다]`를 반드시 출력하십시오."
             )
             print(json.dumps({"injectSteps": [{"ephemeralMessage": msg}]}))
         else:
@@ -413,7 +414,8 @@ def main():
             msg = (
                 f"[AUTO-HANDOFF TRIGGER: Codex 잔여 한도 {info['effective_rem']:.1f}% <= 50%] "
                 f"자동 핸즈오프 스냅샷이 `{handoff_path}` 및 `~/.config/ai/handoffs/LATEST_HANDOFF.md`에 생성되었습니다. "
-                f"현재 진행 상황·미결 이슈·다음 단계를 핸즈오프 파일과 `~/.config/ai/MEMORY.md`에 즉시 보완 기록하십시오."
+                f"현재 진행 상황·미결 이슈·다음 단계를 핸즈오프 파일과 `~/.config/ai/MEMORY.md`에 즉시 보완 기록하고, "
+                f"답변 마지막 줄에 `[자동 핸즈오프 알림: 잔여 한도 {info['effective_rem']:.1f}% 도달로 공용 허브에 인계를 완료했습니다]`를 반드시 출력하십시오."
             )
             print(
                 json.dumps(
