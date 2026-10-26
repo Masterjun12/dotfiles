@@ -32,6 +32,8 @@
 | `codex/status-line.py` | 배치 안 함 | `check`/`apply`/`restore`. `~/.codex/config.toml` 의 `[tui]` `status_line` 키만 편집. |
 | `ai/AGENTS.md` | `~/.config/ai/AGENTS.md` | 에이전트 공통 응답 규칙, DB 책임, 출력 절제 SSOT (~/.claude, ~/.gemini, ~/.codex 심볼릭 링크) |
 | `ai/MEMORY.example.md` | `~/.config/ai/MEMORY.md` | 머신별 서버/환경 메모리 템플릿 (미추적) |
+| `ai/agent_hub/` | `/data4/shared/agent_hub/` | 3사 공용 세션/핸즈오프 SQLite 스키마 및 agent-hub CLI |
+| `codex/bin/codex` | `~/.local/bin/codex` | 3사 실행 위치 통일용 Codex CLI 래퍼 스크립트 |
 | `viewer/fview` | `~/.local/bin/fview` | 확장자별 미리보기 변환기. 도구가 없으면 원문으로 폴백. bash 3.2(macOS)에서도 동작 |
 | `viewer/yazi.toml`, `viewer/keymap.toml` | `~/.config/yazi/` | yazi 미리보기·열기를 `fview` 에 연결, 미리보기 스크롤 키 |
 | `claude/extensions.txt` | 배치 안 함 | 7.6 단계가 읽는 외부 확장 목록. install·uninstall 이 같은 목록을 쓴다. 외부 본문은 복제하지 않는다 |

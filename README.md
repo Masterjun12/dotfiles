@@ -185,6 +185,24 @@ Claude Code, Google Antigravity, OpenAI Codex CLI 등 서로 다른 에이전트
   - `~/.gemini/AGENTS.md` → `~/.config/ai/AGENTS.md`
   - `~/.codex/AGENTS.md` → `~/.config/ai/AGENTS.md` (및 `$CODEX_HOME/AGENTS.md`)
 
+## 3사 공용 에이전트 허브 (Agent Hub) & 스킬 단일 원본
+
+Claude Code, Antigravity, OpenAI Codex 3사가 생성하는 세션 대화 로그와 인수인계(핸즈오프) 상태를 단일 SQLite 원장으로 통합 적재하고, 스킬 디렉터리를 중앙으로 강제 일원화한다.
+
+- **중앙 DB 원장 (`agent_hub.db`)**:
+  - `sessions`, `turns`, `tool_executions`, `handoffs` 4개 테이블로 3사의 제각각인 JSONL 포맷을 공통 표준으로 정규화.
+  - FTS5 가상 테이블(`turns_fts`)을 통한 0.001초 키워드 검색 지원.
+- **공용 CLI 도구 (`agent-hub`)**:
+  - `agent-hub search <키워드>`: 3사의 이전 대화 및 해결 내역 전문 검색.
+  - `agent-hub handoff`: 최신 에이전트 인수인계 일지 확인.
+  - `agent-hub sessions`: 최근 3사 세션 목록 조회.
+  - `agent-hub stats`: 3사 세션 및 발화 통계 확인.
+  - `agent-hub sync`: 3사 최신 세션 즉시 동기화.
+- **스킬 단일 원본 (Skills SSOT)**:
+  - `/data4/shared/agent_hub/skills/` (또는 `~/.config/ai/agent_hub/skills/`)에 스킬을 단일화하고, `~/.claude/skills`, `~/.gemini/antigravity-cli/skills`, `~/.codex/skills`, `~/.config/ai/skills`를 전부 심볼릭 링크로 연결하여 어디서든 동일한 스킬 세트를 실시간 공유.
+- **실행 환경 일원화**:
+  - `~/.local/bin/codex` 래퍼를 통해 3사 에이전트 모두 `~/.local/bin`에서 홈 기준으로 통일 실행.
+
 ## 터미널 파일 뷰어
 
 VS Code 없이 터미널에서 소스와 문서를 훑어보는 구성이다. `yazi` 를 실행하면 왼쪽에 폴더, 오른쪽에 미리보기가 나온다.

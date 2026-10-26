@@ -433,6 +433,43 @@ deploy_file ai/agents/plugin.json "$HOME/.gemini/config/plugins/dotfiles-agent-a
 python3 scripts/agent-config.py apply
 info "3사 훅·역할 어댑터·설정 템플릿 배치 완료 (스킬 본문은 원본 저장소에서 설치)"
 
+# ── 7.7. 3사 공용 에이전트 허브 (Agent Hub) 및 스킬 통합 ──────
+HUB_TARGET="/data4/shared/agent_hub"
+if [ ! -d "$HUB_TARGET" ]; then
+  HUB_TARGET="$HOME/.config/ai/agent_hub"
+fi
+mkdir -p "$HUB_TARGET/scripts" "$HUB_TARGET/schema" "$HUB_TARGET/skills" "$HOME/.local/bin"
+
+deploy_file ai/agent_hub/schema/schema.sql "$HUB_TARGET/schema/schema.sql" agent-hub-schema.sql
+deploy_file ai/agent_hub/scripts/ingest_sessions.py "$HUB_TARGET/scripts/ingest_sessions.py" agent-hub-ingest.py
+deploy_file ai/agent_hub/scripts/agent_hub_cli.py "$HUB_TARGET/scripts/agent_hub_cli.py" agent-hub-cli.py
+chmod +x "$HUB_TARGET/scripts/"*.py 2>/dev/null || true
+
+# agent-hub CLI 및 codex 래퍼 심볼릭 링크/배치
+deploy_symlink "$HUB_TARGET/scripts/agent_hub_cli.py" "$HOME/.local/bin/agent-hub" agent-hub-bin
+if [ -f codex/bin/codex ]; then
+  deploy_file codex/bin/codex "$HOME/.local/bin/codex" codex-bin
+  chmod +x "$HOME/.local/bin/codex" 2>/dev/null || true
+fi
+
+# 스키마 초기화 (DB 파일이 없을 때만 생성)
+if [ ! -f "$HUB_TARGET/agent_hub.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+  sqlite3 "$HUB_TARGET/agent_hub.db" < "$HUB_TARGET/schema/schema.sql" || true
+fi
+
+# 3사 스킬 디렉터리 중앙 통합 심볼릭 링크 강제
+for skill_dir in "$HOME/.claude/skills" "$HOME/.gemini/antigravity-cli/skills" "${CODEX_HOME:-$HOME/.codex}/skills" "$HOME/.config/ai/skills"; do
+  if [ ! -L "$skill_dir" ]; then
+    mkdir -p "$(dirname "$skill_dir")"
+    if [ -d "$skill_dir" ]; then
+      cp -a "$skill_dir"/* "$HUB_TARGET/skills/" 2>/dev/null || true
+      rm -rf "$skill_dir"
+    fi
+    deploy_symlink "$HUB_TARGET/skills" "$skill_dir" "skills-link-$(basename "$(dirname "$skill_dir")")"
+  fi
+done
+info "3사 공용 에이전트 허브 및 스킬 단일 원본(SSOT) 배포 완료"
+
 # ── 7.5. 터미널 파일 뷰어 (yazi + glow + chafa, fview 미리보기) ──
 # 바이너리는 없을 때만 설치한다. macOS 는 brew, Linux 는 GitHub 릴리스의 정적 바이너리를 ~/.local/bin 에 둔다.
 # 내려받기에 실패해도 셸 환경과 무관하므로 경고만 하고 계속한다.
