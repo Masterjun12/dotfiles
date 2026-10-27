@@ -13,15 +13,13 @@ import sys
 import os
 import sqlite3
 import argparse
-import subprocess
 
 DEFAULT_DB_DIR = "/data4/shared/agent_hub" if os.path.isdir("/data4/shared/agent_hub") else os.path.expanduser("~/.config/ai/agent_hub")
 DB_PATH = os.getenv("AGENT_HUB_DB", os.path.join(DEFAULT_DB_DIR, "agent_hub.db"))
 LATEST_HANDOFF_MD = os.path.join(DEFAULT_DB_DIR, "LATEST_HANDOFF.md")
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-INGEST_SCRIPT = os.path.join(SCRIPT_DIR, "ingest_sessions.py")
-if not os.path.exists(INGEST_SCRIPT):
-    INGEST_SCRIPT = "/data4/shared/agent_hub/scripts/ingest_sessions.py"
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 
 def get_conn():
@@ -174,7 +172,9 @@ def cmd_stats(args):
 
 def cmd_sync(args):
     print("[+] 3사 세션 동기화 실행 중...")
-    subprocess.run([sys.executable, INGEST_SCRIPT], check=True)
+    from ingest_sessions import main as ingest_main
+
+    ingest_main()
 
 
 def main():
