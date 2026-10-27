@@ -1,0 +1,27 @@
+# 미리보기·열기: 문서형 파일은 fview(~/.local/bin/fview)로 사람이 읽는 형태로 변환한다.
+# 코드·설정·텍스트는 yazi 기본 구문 강조, 이미지·영상·압축은 yazi 기본 미리보기를 쓴다.
+# 전체 화면(Enter) 스크롤: j/k, Space/b 한 화면, g/G 처음/끝, q 종료
+
+[mgr]
+show_hidden = true
+sort_dir_first = true
+linemode = "size"
+
+[preview]
+wrap = "yes"
+tab_size = 4
+
+[opener]
+doc = [
+	{ run = 'fview "$1" 100 -p', block = true, desc = "fview", for = "unix" },
+]
+
+[open]
+prepend_rules = [
+	{ url = "*.{md,markdown,mdx,ipynb,docx,odt,rtf,epub,rst,org,tex,pdf,csv,tsv,xlsx,xlsm,pptx,db,sqlite,sqlite3}", use = [ "doc", "edit" ] },
+]
+
+[plugin]
+prepend_previewers = [
+	{ url = "*.{md,markdown,mdx,ipynb,docx,odt,rtf,epub,rst,org,tex,html,htm,xhtml,pdf,csv,tsv,xlsx,xlsm,pptx,db,sqlite,sqlite3}", run = 'piper -- fview "$1" "$w"' },
+]

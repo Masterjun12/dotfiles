@@ -1,0 +1,8 @@
+# 오른쪽 미리보기 스크롤 (기본 J/K 외 방향키 조합 추가)
+[mgr]
+prepend_keymap = [
+	{ on = "<S-Down>", run = "seek 5",   desc = "Preview down 5 lines" },
+	{ on = "<S-Up>",   run = "seek -5",  desc = "Preview up 5 lines" },
+	{ on = "<C-Down>", run = "seek 30",  desc = "Preview down 30 lines" },
+	{ on = "<C-Up>",   run = "seek -30", desc = "Preview up 30 lines" },
+]

@@ -1,235 +1,436 @@
 #!/usr/bin/env python3
-"""세션별 실제 잔여량으로 핸즈오프를 기록하며 작업을 차단하지 않는다."""
+"""
+Global Automatic Session Handoff Memory Guard for Antigravity (AGY) and OpenAI Codex.
+- AGY threshold:   <= 50.0% remaining (context window or active model quota)
+- Codex threshold: <= 50.0% remaining (context window or 5h/weekly rate limit)
+"""
 import argparse
 import datetime
-import fcntl
+import glob
 import json
-import math
 import os
-from pathlib import Path
-import re
 import subprocess
 import sys
-import tempfile
-import time
 
-AI_DIR = Path.home() / '.config/ai'
-HANDOFF_DIR = AI_DIR / 'handoffs'
+AI_DIR = os.path.expanduser("~/.config/ai")
+HANDOFF_DIR = os.path.join(AI_DIR, "handoffs")
+MEMORY_FILE = os.path.join(AI_DIR, "MEMORY.md")
+STATE_FILE = os.path.join(HANDOFF_DIR, ".handoff_state.json")
 
 
-def load(path):
+def load_json_safe(path):
     try:
-        return json.loads(Path(path).read_text())
-    except (OSError, ValueError):
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return json.load(f)
+    except Exception:
         return {}
 
 
-def atomic(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, temp = tempfile.mkstemp(dir=str(path.parent), prefix='.handoff-')
+def save_json_safe(path, obj):
     try:
-        with os.fdopen(fd, 'w') as f:
-            f.write(value)
-        os.chmod(temp, 0o600)
-        os.replace(temp, str(path))
-    finally:
-        if os.path.exists(temp):
-            os.unlink(temp)
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception:
+        pass
 
 
-def percent(value):
+def get_git_summary(cwd):
+    if not cwd or not os.path.isdir(cwd):
+        return "N/A", []
     try:
-        value = float(value)
-        return max(0.0, min(100.0, value)) if math.isfinite(value) else None
-    except (TypeError, ValueError):
-        return None
+        branch = subprocess.run(
+            ["git", "-C", cwd, "--no-optional-locks", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=2
+        ).stdout.strip() or "DETACHED"
+        status_lines = subprocess.run(
+            ["git", "-C", cwd, "--no-optional-locks", "status", "--short"],
+            capture_output=True, text=True, timeout=2
+        ).stdout.splitlines()[:15]
+        return branch, status_lines
+    except Exception:
+        return "N/A", []
 
 
-def tail_events(path):
-    try:
-        with Path(path).open('rb') as f:
-            f.seek(0, 2)
-            size = f.tell()
-            f.seek(max(0, size - 1024 * 1024))
-            lines = f.read().splitlines()
-        for line in lines:
-            try:
-                yield json.loads(line)
-            except ValueError:
+def extract_agy_metrics_and_recent(payload):
+    conv_id = (
+        payload.get("conversationId")
+        or payload.get("conversation_id")
+        or payload.get("session_id")
+        or "unknown"
+    )
+    workspaces = payload.get("workspacePaths") or []
+    cwd = (
+        payload.get("cwd")
+        or (payload.get("workspace") or {}).get("current_dir")
+        or (workspaces[0] if workspaces else "/data4/workspace")
+    )
+    transcript_path = payload.get("transcriptPath") or payload.get("transcript_path") or ""
+
+    # Read statusline snapshot if available
+    sl_data = payload if "context_window" in payload or "quota" in payload else {}
+    if not sl_data:
+        per_sess = f"/tmp/agy_statusline_{conv_id}.json"
+        if os.path.exists(per_sess):
+            sl_data = load_json_safe(per_sess)
+        elif os.path.exists("/tmp/agy_statusline_payload.json"):
+            cand = load_json_safe("/tmp/agy_statusline_payload.json")
+            if cand.get("conversation_id") in (conv_id, None) or conv_id == "unknown":
+                sl_data = cand
+
+    ctx_rem = 100.0
+    cw = sl_data.get("context_window") or {}
+    if cw.get("remaining_percentage") is not None:
+        ctx_rem = float(cw["remaining_percentage"])
+    elif cw.get("used_percentage") is not None:
+        ctx_rem = max(0.0, 100.0 - float(cw["used_percentage"]))
+    elif transcript_path and os.path.exists(transcript_path):
+        # Fallback heuristic from transcript byte size vs ~4MB full context
+        sz = os.path.getsize(transcript_path)
+        ctx_rem = max(0.0, 100.0 - (sz / (4.0 * 1024 * 1024)) * 100.0)
+
+    quota_rem = 100.0
+    quota_details = []
+    quota = sl_data.get("quota")
+    model_name = ""
+    if isinstance(sl_data.get("model"), dict):
+        model_name = (sl_data["model"].get("display_name") or sl_data["model"].get("id") or "").lower()
+    elif isinstance(payload.get("modelName"), str):
+        model_name = payload.get("modelName", "").lower()
+
+    if isinstance(quota, dict):
+        for k, v in quota.items():
+            if not isinstance(v, dict):
                 continue
-    except OSError:
-        return
+            rem_pct = None
+            if v.get("remaining_fraction") is not None:
+                rem_pct = float(v["remaining_fraction"]) * 100.0
+            elif v.get("remaining_percentage") is not None:
+                rem_pct = float(v["remaining_percentage"])
+            elif v.get("used_percentage") is not None:
+                rem_pct = 100.0 - float(v["used_percentage"])
+            if rem_pct is not None:
+                quota_details.append(f"{k}:{rem_pct:.1f}%")
+                # Match displayed 5h/weekly quota buckets
+                if "claude" in model_name or "sonnet" in model_name or "opus" in model_name:
+                    if k in ("3p-5h", "3p-weekly"):
+                        quota_rem = min(quota_rem, rem_pct)
+                else:
+                    if k in ("gemini-5h", "gemini-weekly"):
+                        quota_rem = min(quota_rem, rem_pct)
 
+    effective_rem = min(ctx_rem, quota_rem)
 
-def metrics(agent, payload, session):
-    cache = HANDOFF_DIR / 'status' / (agent + '-' + session + '.json')
-    data = payload
-    if not ('context_window' in payload or 'quota' in payload):
-        cached = load(cache)
-        if cached:
-            data = cached
-    context, quotas = None, {}
-    cw = data.get('context_window') or {}
-    context = percent(cw.get('remaining_percentage'))
-    if context is None and percent(cw.get('used_percentage')) is not None:
-        context = 100 - percent(cw['used_percentage'])
-    quota = data.get('quota') or {}
-    model = data.get('model') or payload.get('modelName') or ''
-    if isinstance(model, dict):
-        model = model.get('display_name') or model.get('id') or ''
-    prefix = '3p-' if any(word in str(model).lower() for word in ('claude', 'sonnet', 'opus')) else 'gemini-'
-    for key, item in quota.items():
-        if not isinstance(item, dict) or not key.startswith(prefix):
-            continue
-        val = percent(item.get('remaining_percentage'))
-        if item.get('remaining_fraction') is not None:
-            try:
-                val = percent(float(item['remaining_fraction']) * 100)
-            except (TypeError, ValueError):
-                val = None
-        if val is None and percent(item.get('used_percentage')) is not None:
-            val = 100 - percent(item['used_percentage'])
-        if val is not None:
-            quotas[key] = val
-    path = payload.get('transcript_path') or payload.get('transcriptPath')
-    if agent == 'codex' and not path:
-        root = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'sessions'
-        matches = list(root.glob('**/*' + session + '*.jsonl'))
-        if len(matches) == 1:
-            path = str(matches[0])
-    if agent == 'codex' and path:
+    # Extract last 3 user inputs & last planner response from transcript.jsonl
+    recent_users = []
+    last_agent = ""
+    if not transcript_path or not os.path.exists(transcript_path):
+        cand_t = os.path.expanduser(
+            f"~/.gemini/antigravity-cli/brain/{conv_id}/.system_generated/logs/transcript.jsonl"
+        )
+        if os.path.exists(cand_t):
+            transcript_path = cand_t
+
+    if transcript_path and os.path.exists(transcript_path):
         try:
-            with Path(path).open() as f:
-                first = json.loads(f.readline())
-            if first.get('type') == 'session_meta':
-                meta = first.get('payload') or {}
-                recorded = meta.get('id') or meta.get('session_id')
-                if recorded and recorded != session:
-                    path = None
-        except (OSError, ValueError):
-            path = None
-    users, response = [], str(payload.get('last_assistant_message') or '')[:400]
-    if path:
-        for event in tail_events(path):
-            p = event.get('payload') or {}
-            if agent == 'codex' and p.get('type') == 'token_count':
-                info = p.get('info') or {}
-                window = info.get('model_context_window')
-                used = (info.get('last_token_usage') or {}).get('total_tokens')
-                try:
-                    if window and used is not None:
-                        context = percent(100 * (1 - used / window))
-                except (TypeError, ZeroDivisionError):
-                    pass
-                limits = p.get('rate_limits') or {}
-                if limits.get('limit_id') in (None, 'codex'):
-                    for slot in ('primary', 'secondary'):
-                        item = limits.get(slot) or {}
-                        minutes = item.get('window_minutes')
-                        used_pct = percent(item.get('used_percent'))
-                        if item.get('resets_at') and item['resets_at'] <= time.time():
-                            quotas.pop(str(minutes), None)
-                            continue
-                        if minutes in (300, 10080) and used_pct is not None:
-                            quotas[str(minutes)] = 100 - used_pct
-            if p.get('type') == 'user_message':
-                users.append(str(p.get('message') or '')[:200])
-            if p.get('type') == 'agent_message':
-                response = str(p.get('message') or '')[:400]
-            if event.get('type') == 'USER_INPUT':
-                users.append(str(event.get('content') or '')[:200])
-            if event.get('type') == 'PLANNER_RESPONSE':
-                response = str(event.get('content') or '')[:400]
-    if payload.get('prompt'):
-        users.append(str(payload['prompt'])[:200])
-    values = ([context] if context is not None else []) + list(quotas.values())
-    return {'session_id': session, 'cwd': payload.get('cwd') or (payload.get('workspace') or {}).get('current_dir') or
-            (payload.get('workspacePaths') or [os.getcwd()])[0], 'context': context, 'quotas': quotas,
-            'remaining': min(values) if values else None, 'users': users[-3:], 'response': response}
+            with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()[-60:]
+            for line in lines:
+                obj = json.loads(line)
+                stype = obj.get("type", "")
+                content = (obj.get("content") or "").strip()
+                if stype == "USER_INPUT" and content:
+                    clean = content.replace("<USER_REQUEST>", "").replace("</USER_REQUEST>", "").strip()
+                    recent_users.append(clean.splitlines()[0][:200])
+                elif stype == "PLANNER_RESPONSE" and content:
+                    last_agent = " / ".join(l.strip() for l in content.splitlines() if l.strip())[:400]
+        except Exception:
+            pass
+
+    return {
+        "session_id": conv_id,
+        "cwd": cwd,
+        "ctx_rem": ctx_rem,
+        "quota_rem": quota_rem,
+        "effective_rem": effective_rem,
+        "quota_summary": ", ".join(quota_details) if quota_details else "N/A",
+        "recent_users": recent_users[-3:],
+        "last_agent": last_agent,
+    }
 
 
-def snapshot(agent, threshold, data):
-    HANDOFF_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (HANDOFF_DIR / '.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        session = data['session_id']
-        path = HANDOFF_DIR / ('HANDOFF_' + agent + '_' + session + '.md')
-        cwd = data['cwd']
+def extract_codex_metrics_and_recent(payload):
+    sess_id = payload.get("session_id") or payload.get("thread-id") or "unknown"
+    cwd = payload.get("cwd") or "/data4/workspace"
+    transcript_path = payload.get("transcript_path") or ""
+
+    if not transcript_path or not os.path.exists(transcript_path):
+        codex_home = os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
+        candidates = sorted(
+            glob.glob(os.path.join(codex_home, "sessions", "**", "*.jsonl"), recursive=True),
+            key=os.path.getmtime,
+        )
+        if sess_id != "unknown":
+            matched = [c for c in candidates if sess_id in os.path.basename(c)]
+            if matched:
+                transcript_path = matched[-1]
+        if not transcript_path and candidates:
+            transcript_path = candidates[-1]
+
+    ctx_rem = 100.0
+    quota_rem = 100.0
+    quota_details = []
+    recent_users = []
+    last_agent = (payload.get("last_assistant_message") or payload.get("last-assistant-message") or "").strip()[:400]
+
+    if transcript_path and os.path.exists(transcript_path):
         try:
-            git = subprocess.run(['git', '-C', cwd, '--no-optional-locks', 'status', '--short'],
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=2)
-            changes = git.stdout.splitlines()[:15]
-        except (OSError, subprocess.TimeoutExpired):
-            changes = []
-        now = datetime.datetime.now().isoformat(timespec='seconds')
-        content = ('# 자동 핸즈오프\n\n- 에이전트: ' + agent + '\n- 세션: ' + session + '\n- 생성: ' + now +
-                   '\n- 작업 경로: ' + cwd + '\n- 잔여 한도: {:.1f}% (임계치 {:.0f}%)\n'.format(data['remaining'], threshold) +
-                   '\n## 최근 사용자 요청\n\n' + '\n'.join('- ' + x.replace('\n', ' ') for x in data['users']) +
-                   '\n\n## 최근 응답\n\n' + data['response'] + '\n\n## Git 상태\n\n' +
-                   '\n'.join('- ' + x for x in changes) +
-                   '\n\n## 보완할 인수인계\n\n현재 진행 상황·미결 과제·검증 결과·다음 행동을 기록한다.\n')
-        # 에이전트가 보완한 문서는 반복 훅으로 덮어쓰지 않는다.
-        if not path.exists():
-            atomic(path, content)
-        atomic(path.with_suffix('.json'), json.dumps(data, ensure_ascii=False, indent=2))
-        latest = HANDOFF_DIR / 'LATEST_HANDOFF.md'
-        if session not in (latest.read_text() if latest.exists() else ''):
-            atomic(latest, path.read_text())
-        project_memory = Path(cwd) / '.claude/memory'
-        if project_memory.is_dir():
-            target = project_memory / ('project_handoff_' + agent + '_' + datetime.date.today().strftime('%Y%m%d') + '.md')
-            if not target.exists():
-                atomic(target, path.read_text())
-        memory = AI_DIR / 'MEMORY.md'
-        marker = '[HANDOFF:' + agent + ':' + session + ']'
-        if memory.exists() and marker not in memory.read_text():
-            with memory.open('a') as f:
-                f.write('\n- ' + now + ' ' + marker + ' ' + str(path) + '\n')
-        return path
+            with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()[-120:]
+            for line in lines:
+                if '"token_count"' in line or '"user_message"' in line or '"agent_message"' in line:
+                    obj = json.loads(line)
+                    p = obj.get("payload") or {}
+                    ptype = p.get("type")
+                    if ptype == "token_count":
+                        info = p.get("info") or {}
+                        win = float(info.get("model_context_window") or 475000)
+                        last_u = info.get("last_token_usage") or {}
+                        in_tok = float(last_u.get("input_tokens") or last_u.get("total_tokens") or 0)
+                        if win > 0 and in_tok > 0:
+                            ctx_rem = max(0.0, 100.0 * (1.0 - in_tok / win))
+                        rl = p.get("rate_limits") or {}
+                        for rk in ("primary", "secondary"):
+                            rv = rl.get(rk)
+                            if isinstance(rv, dict) and rv.get("used_percent") is not None:
+                                rem = max(0.0, 100.0 - float(rv["used_percent"]))
+                                quota_rem = min(quota_rem, rem)
+                                quota_details.append(f"{rk}:{rem:.1f}%")
+                    elif ptype == "user_message":
+                        msg = (p.get("message") or "").strip()
+                        if msg:
+                            recent_users.append(msg.splitlines()[0][:200])
+                    elif ptype == "agent_message" and not last_agent:
+                        msg = (p.get("message") or "").strip()
+                        if msg:
+                            last_agent = " / ".join(l.strip() for l in msg.splitlines() if l.strip())[:400]
+        except Exception:
+            pass
+
+    if payload.get("prompt"):
+        recent_users.append(str(payload["prompt"]).strip().splitlines()[0][:200])
+
+    effective_rem = min(ctx_rem, quota_rem)
+    return {
+        "session_id": sess_id,
+        "cwd": cwd,
+        "ctx_rem": ctx_rem,
+        "quota_rem": quota_rem,
+        "effective_rem": effective_rem,
+        "quota_summary": ", ".join(quota_details[-2:]) if quota_details else "N/A",
+        "recent_users": recent_users[-3:],
+        "last_agent": last_agent,
+    }
+
+
+def write_handoff_files(agent_label, threshold_pct, info):
+    os.makedirs(HANDOFF_DIR, mode=0o700, exist_ok=True)
+    now_dt = datetime.datetime.now()
+    now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+    date_tag = now_dt.strftime("%Y%m%d")
+    short_id = str(info["session_id"])[:12]
+    branch, git_status = get_git_summary(info["cwd"])
+
+    handoff_path = os.path.join(HANDOFF_DIR, f"HANDOFF_{agent_label}_{short_id}.md")
+    latest_path = os.path.join(HANDOFF_DIR, "LATEST_HANDOFF.md")
+
+    user_bullets = "\n".join(f"  - `{u}`" for u in info["recent_users"]) if info["recent_users"] else "  - (최근 사용자 입력 없음)"
+    git_bullets = "\n".join(f"  - `{g}`" for g in git_status) if git_status else "  - `clean`"
+
+    content = f"""# [{agent_label.upper()}] 자동 핸즈오프 메모리 (임계치 {threshold_pct:.0f}% 이하 도달)
+
+- **생성 시각**: `{now_str}`
+- **에이전트 / 세션 ID**: `{agent_label}` / `{info['session_id']}`
+- **잔여 한도**: 최저 `{info['effective_rem']:.1f}%` (컨텍스트 잔여 `{info['ctx_rem']:.1f}%`, 쿼터/레이트리밋 잔여 `{info['quota_rem']:.1f}%` [{info['quota_summary']}])
+- **작업 디렉터리 및 브랜치**: `{info['cwd']}` (`{branch}`)
+
+## 1. 최근 사용자 요청 흐름
+{user_bullets}
+
+## 2. 직전 에이전트 응답/진행 요약
+- {info['last_agent'] or '(진행 중 요약 대기)'}
+
+## 3. Git 워킹트리 변경 상태 (최대 15건)
+{git_bullets}
+
+## 4. 후속 세션 인수인계 지침
+- 본 문서는 `{agent_label}` 세션 한도가 `{threshold_pct:.0f}%` 이하(`{info['effective_rem']:.1f}%`)로 도달하여 훅에 의해 자동 생성되었습니다.
+- 현재 세션의 에이전트는 즉시 미결 작업·검증 상태·다음 단계(Next Steps)를 아래 또는 `~/.config/ai/MEMORY.md`에 보완 기록하십시오.
+"""
+
+    central_latest = "/data4/shared/agent_hub/LATEST_HANDOFF.md"
+    for target in (handoff_path, latest_path, central_latest):
+        try:
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.chmod(target, 0o600)
+        except Exception:
+            pass
+
+    # Record into central Agent Hub SQLite DB
+    try:
+        hub_db = "/data4/shared/agent_hub/agent_hub.db"
+        if os.path.exists(hub_db):
+            import sqlite3
+            with sqlite3.connect(hub_db, timeout=5.0) as conn:
+                conn.execute("""
+                    INSERT INTO handoffs (session_id, source_agent, cwd, git_branch, git_status, work_done, context_remaining_pct, quota_remaining_pct, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    str(info["session_id"]),
+                    agent_label,
+                    str(info["cwd"]),
+                    branch,
+                    "\n".join(git_status),
+                    str(info['last_agent'] or ''),
+                    float(info.get('ctx_rem', 100.0)),
+                    float(info.get('quota_rem', 100.0)),
+                    now_str
+                ))
+    except Exception:
+        pass
+
+    # Also write to workspace .claude/memory if present
+    cwd = info["cwd"]
+    if cwd and os.path.isdir(os.path.join(cwd, ".claude", "memory")):
+        ws_handoff = os.path.join(cwd, ".claude", "memory", f"project_handoff_{agent_label}_{date_tag}.md")
+        try:
+            with open(ws_handoff, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            pass
+
+    # Update 1-line pointer in ~/.config/ai/MEMORY.md (idempotent per session_id)
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                mem_txt = f.read()
+            marker = f"[HANDOFF:{agent_label}:{short_id}]"
+            line_entry = (
+                f"- {now_dt.strftime('%Y-%m-%d')} {marker} `{agent_label}` 세션(`{short_id}`, `{info['cwd']}`) "
+                f"잔여 한도 `{info['effective_rem']:.1f}%`(임계치 `{threshold_pct:.0f}%`) 도달로 자동 핸즈오프 스냅샷을 "
+                f"`~/.config/ai/handoffs/LATEST_HANDOFF.md` 및 `{handoff_path}`에 생성했다.\n"
+            )
+            if marker not in mem_txt:
+                with open(MEMORY_FILE, "a", encoding="utf-8") as f:
+                    if not mem_txt.endswith("\n"):
+                        f.write("\n")
+                    f.write(line_entry)
+        except Exception:
+            pass
+
+    return handoff_path
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--agent', required=True, choices=['agy', 'codex', 'claude', 'agy-statusline'])
-    parser.add_argument('--statusline', action='store_true')
+    parser.add_argument("--agent", required=True, choices=["agy", "agy-statusline", "codex"])
     args = parser.parse_args()
-    agent = 'agy' if args.agent == 'agy-statusline' else args.agent
-    statusline = args.statusline or args.agent == 'agy-statusline'
-    try:
-        payload = json.load(sys.stdin)
-    except (ValueError, TypeError):
-        payload = {}
-    session = payload.get('session_id') or payload.get('conversationId') or payload.get('conversation_id') or payload.get('thread-id')
-    if not session or not re.fullmatch(r'[a-zA-Z0-9_-]{1,100}', str(session)):
-        if not statusline:
-            print('{}' if agent == 'agy' else '{"continue":true}')
+
+    raw_in = ""
+    if not sys.stdin.isatty():
+        try:
+            raw_in = sys.stdin.read()
+        except Exception:
+            raw_in = ""
+    payload = {}
+    if raw_in.strip():
+        try:
+            payload = json.loads(raw_in)
+        except Exception:
+            payload = {}
+
+    if args.agent in ("agy", "agy-statusline"):
+        threshold = 50.0
+        info = extract_agy_metrics_and_recent(payload)
+        triggered = info["effective_rem"] <= threshold
+
+        if args.agent == "agy-statusline":
+            if triggered:
+                write_handoff_files("agy", threshold, info)
+            return
+
+        # Lifecycle hook for AGY (PreInvocation or Stop)
+        is_stop = "terminationReason" in payload or "fullyIdle" in payload
+        if not triggered:
+            if is_stop:
+                print(json.dumps({"decision": "allow"}))
+            else:
+                print(json.dumps({}))
+            return
+
+        handoff_path = write_handoff_files("agy", threshold, info)
+        state = load_json_safe(STATE_FILE)
+        notified_key = f"agy_notified_{info['session_id']}"
+
+        if is_stop:
+            print(json.dumps({"decision": "allow"}))
+            return
+
+        # PreInvocation: inject ephemeral reminder so AGY enriches the handoff memory
+        if not state.get(notified_key):
+            state[notified_key] = info["effective_rem"]
+            save_json_safe(STATE_FILE, state)
+            msg = (
+                f"[AUTO-HANDOFF TRIGGER: AGY 잔여 한도 {info['effective_rem']:.1f}% <= 50%] "
+                f"자동 핸즈오프 스냅샷이 `{handoff_path}` 및 `~/.config/ai/handoffs/LATEST_HANDOFF.md`에 생성되었습니다. "
+                f"이번 턴에 현재 작업 진행 상황, 미결 과제, 검증 결과, 다음 단계를 핸즈오프 파일과 `~/.config/ai/MEMORY.md`에 즉시 요약·갱신하고, "
+                f"답변 마지막 줄에 `[자동 핸즈오프 알림: 잔여 한도 {info['effective_rem']:.1f}% 도달로 공용 허브에 인계를 완료했습니다]`를 반드시 출력하십시오."
+            )
+            print(json.dumps({"injectSteps": [{"ephemeralMessage": msg}]}))
+        else:
+            print(json.dumps({}))
         return
-    if statusline:
-        # 상태줄 입력에서 필요한 잔여량만 저장한다. 원문·인증값은 캐시하지 않는다.
-        safe = {key: payload[key] for key in ('context_window', 'quota', 'model') if key in payload}
-        atomic(HANDOFF_DIR / 'status' / (agent + '-' + session + '.json'), json.dumps(safe))
-    data = metrics(agent, payload, session)
-    threshold = float(os.environ.get('AI_HANDOFF_' + agent.upper() + '_THRESHOLD', '50' if agent == 'agy' else '30'))
-    path = None
-    if data['remaining'] is not None and data['remaining'] <= threshold:
-        path = snapshot(agent, threshold, data)
-    if statusline:
-        return
-    event = payload.get('hook_event_name')
-    msg = '[AUTO-HANDOFF TRIGGER] ' + str(path) + ' 및 MEMORY.md에 진행 상황·미결 과제·검증·다음 행동을 보완한다.'
-    if agent == 'agy':
-        is_stop = 'terminationReason' in payload or 'fullyIdle' in payload
-        print(json.dumps({'decision': 'allow'} if is_stop else {'injectSteps': [{'ephemeralMessage': msg}]} if path else {}))
-    elif path and event == 'UserPromptSubmit':
-        print(json.dumps({'continue': True, 'hookSpecificOutput': {'hookEventName': event, 'additionalContext': msg}}))
-    else:
-        print('{"continue":true}')
+
+    if args.agent == "codex":
+        threshold = 50.0
+        info = extract_codex_metrics_and_recent(payload)
+        triggered = info["effective_rem"] <= threshold
+        event_name = payload.get("hook_event_name") or ""
+
+        if not triggered:
+            print(json.dumps({"continue": True}))
+            return
+
+        handoff_path = write_handoff_files("codex", threshold, info)
+        state = load_json_safe(STATE_FILE)
+        notified_key = f"codex_notified_{info['session_id']}"
+
+        if event_name == "UserPromptSubmit" and not state.get(notified_key):
+            state[notified_key] = info["effective_rem"]
+            save_json_safe(STATE_FILE, state)
+            msg = (
+                f"[AUTO-HANDOFF TRIGGER: Codex 잔여 한도 {info['effective_rem']:.1f}% <= 50%] "
+                f"자동 핸즈오프 스냅샷이 `{handoff_path}` 및 `~/.config/ai/handoffs/LATEST_HANDOFF.md`에 생성되었습니다. "
+                f"현재 진행 상황·미결 이슈·다음 단계를 핸즈오프 파일과 `~/.config/ai/MEMORY.md`에 즉시 보완 기록하고, "
+                f"답변 마지막 줄에 `[자동 핸즈오프 알림: 잔여 한도 {info['effective_rem']:.1f}% 도달로 공용 허브에 인계를 완료했습니다]`를 반드시 출력하십시오."
+            )
+            print(
+                json.dumps(
+                    {
+                        "continue": True,
+                        "hookSpecificOutput": {
+                            "hookEventName": "UserPromptSubmit",
+                            "additionalContext": msg,
+                        },
+                    }
+                )
+            )
+        else:
+            print(json.dumps({"continue": True}))
 
 
-if __name__ == '__main__':
-    try:
-        main()
-    except (OSError, ValueError, TypeError):
-        # 기록 실패로 사용자 요청이나 종료를 차단하지 않는다.
-        pass
+if __name__ == "__main__":
+    main()

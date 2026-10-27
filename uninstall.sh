@@ -3,7 +3,7 @@
 #
 # 사용법:
 #   ./uninstall.sh            # 배치 파일 복원/제거 + statusLine·Codex status_line 키 복원 + Nerd Font 제거
-#   ./uninstall.sh --purge    # 위에 더해 install.sh 가 새로 설치한 패키지/바이너리까지 제거
+#   ./uninstall.sh --purge    # 위에 더해 install.sh 가 새로 설치한 패키지/바이너리·클론한 확장 저장소까지 제거
 #   ./uninstall.sh --keep-backup   # ~/.dotfiles-backup 을 남겨둠 (기본은 복원 후 삭제)
 #
 # 복원 기준은 install.sh 가 최초 실행 때 ~/.dotfiles-backup/ 에 남긴 기록:
@@ -92,6 +92,25 @@ restore_file "$HOME/.codex/AGENTS.md" codex-agents.md
 if [ -n "${CODEX_HOME:-}" ] && [ "$CODEX_HOME" != "$HOME/.codex" ]; then
   restore_file "$CODEX_HOME/AGENTS.md" codex-home-agents.md
 fi
+
+# install.sh 7.5 — 터미널 파일 뷰어 설정과 piper 플러그인
+restore_managed_file "$HOME/.local/bin/fview" fview
+restore_managed_file "$HOME/.config/yazi/yazi.toml" yazi.toml
+restore_managed_file "$HOME/.config/yazi/keymap.toml" yazi-keymap.toml
+if [ -f "$BACKUP_DIR/yazi-piper.installed" ]; then
+  rm -rf "$HOME/.config/yazi/plugins/piper.yazi"
+  restore_managed_file "$HOME/.config/yazi/package.toml" yazi-package.toml
+  rm -f "$BACKUP_DIR/yazi-piper.installed"
+  info "yazi piper 플러그인 제거"
+fi
+rmdir "$HOME/.config/yazi/plugins" "$HOME/.config/yazi" 2>/dev/null || true
+
+# install.sh 7.6 — Claude 외부 확장 링크 (클론한 저장소는 --purge 때만 삭제)
+while read -r repo slug src link; do
+  case "$repo" in ''|'#'*) continue ;; esac
+  restore_managed_file "$HOME/.claude/$link" "claude-ext-$(printf '%s' "$link" | tr '/' '-')"
+done < claude/extensions.txt
+rmdir "$HOME/.claude/output-styles" "$HOME/.claude/commands" "$HOME/.claude/skills" 2>/dev/null || true
 
 # ── 2. Claude settings.json 의 statusLine/ui.footer 복원 ──────
 python3 - <<'PYEOF'
@@ -281,6 +300,14 @@ if [ "$PURGE" = 1 ]; then
     info "패키지 제거: $pkgs"
     if command -v dnf >/dev/null; then sudo dnf remove -y $pkgs || info "경고: dnf remove 실패"
     elif command -v apt-get >/dev/null; then sudo apt-get remove -y $pkgs || info "경고: apt-get remove 실패"; fi
+  fi
+  if [ -s "$BACKUP_DIR/ext-cloned.txt" ]; then
+    while IFS= read -r dir; do
+      [ -d "$dir/.git" ] || continue
+      rm -rf "$dir"
+      info "삭제: $dir"
+    done < "$BACKUP_DIR/ext-cloned.txt"
+    rmdir "${DOTFILES_EXT_DIR:-$HOME/.local/share/dotfiles-ext}" 2>/dev/null || true
   fi
   [ -s "$BACKUP_DIR/brew-installed.txt" ] || [ -s "$BACKUP_DIR/bin-installed.txt" ] || [ -s "$BACKUP_DIR/pkg-installed.txt" ] \
     || info "--purge: install.sh 가 새로 설치한 패키지 기록 없음 (이미 있던 도구는 건드리지 않음)"

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Codex CLI 래퍼 스크립트 (환경 자동 감지)
+export CODEX_HOME="${CODEX_HOME:-/data4/${USER:-a202520153}/.codex}"
+if [ ! -d "$CODEX_HOME" ]; then
+  export CODEX_HOME="$HOME/.codex"
+fi
+
+# node-dist 경로 자동 감지
+for node_path in \
+  "/data4/backup/SDLC프로토/.tools/node-dist/node-v22.23.2-linux-x64/bin" \
+  "/data4/SDLC프로토/.tools/node-current/bin" \
+  "$HOME/.local/bin"; do
+  if [ -x "$node_path/codex" ] && [ "$node_path/codex" != "$0" ]; then
+    export PATH="$node_path:$PATH"
+    exec "$node_path/codex" "$@"
+  fi
+done
+
+# 기본 fallback
+exec codex "$@"

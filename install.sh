@@ -2,7 +2,7 @@
 # dotfiles install — zsh + starship 표준 셸 환경 부트스트랩
 #
 # 사용법:
-#   git clone https://github.com/Masterjun12/dotfiles.git && cd dotfiles && ./install.sh
+#   git clone https://github.com/wooring12/dotfiles.git && cd dotfiles && ./install.sh
 #
 # 동작 (섹션 번호 = 아래 주석 번호 = README 단계 표):
 #   0.   의존성 사전 검사 — 누락 시 홈 파일을 하나도 바꾸지 않고 종료. Git Bash/MSYS/Cygwin 은 지원하지 않음(WSL2 에서 실행)
@@ -21,6 +21,9 @@
 #        - ~/.config/ai/AGENTS.md 배치 및 ~/.config/ai/MEMORY.md 초기화
 #        - ~/.claude/CLAUDE.md, ~/.gemini/AGENTS.md, ~/.codex/AGENTS.md 심볼릭 링크 연결
 #        - Codex 2줄 보조 표시줄(codex-pretty), 10개 역할의 런타임 어댑터, 핸즈오프 훅
+#   7.5. 터미널 파일 뷰어 — yazi·glow·chafa (없을 때만), ~/.local/bin/fview, ~/.config/yazi/{yazi,keymap}.toml, piper 플러그인
+#   7.6. Claude Code 외부 확장 — claude/extensions.txt 의 저장소를 DOTFILES_EXT_DIR 에 클론하고
+#        ~/.claude/{output-styles,commands,skills} 아래에 심볼릭 링크
 #   8.   기본 셸이 zsh 가 아니면 chsh 안내
 #
 # 런타임 의존성: curl, unzip, python3 (0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행.
@@ -31,6 +34,8 @@
 #   - <name>.orig     : 덮어쓰기 전 원본 (최초 1회만 기록, 이후 실행은 갱신하지 않음)
 #   - <name>.absent   : 원래 그 파일이 없었다는 표시
 #   - brew-installed.txt / pkg-installed.txt / bin-installed.txt : 이 스크립트가 새로 설치한 것만 기록
+#   - ext-cloned.txt : 7.6 단계가 새로 클론한 확장 저장소 (--purge 때만 삭제)
+#   - yazi-piper.installed : 7.5 단계가 piper 플러그인을 설치했다는 표시
 #   - settings.json.orig : settings.json 설치 전 전체 내용 (없었으면 settings.json.absent)
 #   - gemini-settings.json.orig : ~/.gemini/antigravity-cli/settings.json 설치 전 전체 내용
 #   - codex-config.toml.orig : ~/.codex/config.toml 설치 전 전체 내용 (없었으면 codex-config.toml.absent)
@@ -427,6 +432,150 @@ done
 deploy_file ai/agents/plugin.json "$HOME/.gemini/config/plugins/dotfiles-agent-adapters/plugin.json" agent-plugin.json
 python3 scripts/agent-config.py apply
 info "3사 훅·역할 어댑터·설정 템플릿 배치 완료 (스킬 본문은 원본 저장소에서 설치)"
+
+# ── 7.7. 3사 공용 에이전트 허브 (Agent Hub) 및 스킬 통합 ──────
+HUB_TARGET="/data4/shared/agent_hub"
+if [ ! -d "$HUB_TARGET" ]; then
+  HUB_TARGET="$HOME/.config/ai/agent_hub"
+fi
+mkdir -p "$HUB_TARGET/scripts" "$HUB_TARGET/schema" "$HUB_TARGET/skills" "$HOME/.local/bin"
+
+deploy_file ai/agent_hub/schema/schema.sql "$HUB_TARGET/schema/schema.sql" agent-hub-schema.sql
+deploy_file ai/agent_hub/scripts/ingest_sessions.py "$HUB_TARGET/scripts/ingest_sessions.py" agent-hub-ingest.py
+deploy_file ai/agent_hub/scripts/agent_hub_cli.py "$HUB_TARGET/scripts/agent_hub_cli.py" agent-hub-cli.py
+chmod +x "$HUB_TARGET/scripts/"*.py 2>/dev/null || true
+
+# agent-hub CLI 및 codex 래퍼 심볼릭 링크/배치
+deploy_symlink "$HUB_TARGET/scripts/agent_hub_cli.py" "$HOME/.local/bin/agent-hub" agent-hub-bin
+if [ -f codex/bin/codex ]; then
+  deploy_file codex/bin/codex "$HOME/.local/bin/codex" codex-bin
+  chmod +x "$HOME/.local/bin/codex" 2>/dev/null || true
+fi
+
+# 스키마 초기화 (DB 파일이 없을 때만 생성)
+if [ ! -f "$HUB_TARGET/agent_hub.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+  sqlite3 "$HUB_TARGET/agent_hub.db" < "$HUB_TARGET/schema/schema.sql" || true
+fi
+
+# 3사 스킬 디렉터리 중앙 통합 심볼릭 링크 강제
+for skill_dir in "$HOME/.claude/skills" "$HOME/.gemini/antigravity-cli/skills" "${CODEX_HOME:-$HOME/.codex}/skills" "$HOME/.config/ai/skills"; do
+  if [ ! -L "$skill_dir" ]; then
+    mkdir -p "$(dirname "$skill_dir")"
+    if [ -d "$skill_dir" ]; then
+      cp -a "$skill_dir"/* "$HUB_TARGET/skills/" 2>/dev/null || true
+      rm -rf "$skill_dir"
+    fi
+    deploy_symlink "$HUB_TARGET/skills" "$skill_dir" "skills-link-$(basename "$(dirname "$skill_dir")")"
+  fi
+done
+info "3사 공용 에이전트 허브 및 스킬 단일 원본(SSOT) 배포 완료"
+
+# ── 7.5. 터미널 파일 뷰어 (yazi + glow + chafa, fview 미리보기) ──
+# 바이너리는 없을 때만 설치한다. macOS 는 brew, Linux 는 GitHub 릴리스의 정적 바이너리를 ~/.local/bin 에 둔다.
+# 내려받기에 실패해도 셸 환경과 무관하므로 경고만 하고 계속한다.
+fetch_release_bin() {   # fetch_release_bin <URL> <실행 파일 이름...> — 압축을 풀어 ~/.local/bin 에 배치
+  local url="$1" tmp f name; shift
+  tmp="$(mktemp -d)"
+  if curl -fsSL "$url" -o "$tmp/pkg" && case "$url" in *.zip) unzip -q "$tmp/pkg" -d "$tmp/x" ;; *) mkdir -p "$tmp/x" && tar xzf "$tmp/pkg" -C "$tmp/x" ;; esac; then
+    for name in "$@"; do
+      f="$(find "$tmp/x" -type f -name "$name" | head -1)"
+      if [ -n "$f" ]; then
+        mkdir -p "$HOME/.local/bin"
+        install -m 755 "$f" "$HOME/.local/bin/$name"
+        record bin-installed.txt "$HOME/.local/bin/$name"
+        info "$name 설치 (~/.local/bin)"
+      else
+        info "경고: $url 안에 $name 없음"
+      fi
+    done
+  else
+    info "경고: 내려받기 실패 — $url"
+  fi
+  rm -rf "$tmp"
+}
+if [ "$OS" = "Darwin" ]; then
+  for pkg in yazi glow chafa; do
+    brew list "$pkg" >/dev/null 2>&1 || { info "brew install $pkg"; brew install "$pkg" && record brew-installed.txt "$pkg"; }
+  done
+else
+  case "$(uname -m)" in
+    x86_64)        ARCH=x86_64;  GLOW_ARCH=x86_64 ;;
+    aarch64|arm64) ARCH=aarch64; GLOW_ARCH=arm64 ;;
+    *)             ARCH="" ;;
+  esac
+  if [ -z "$ARCH" ]; then
+    info "경고: $(uname -m) 용 뷰어 바이너리 없음 — yazi·glow·chafa 설치 건너뜀"
+  else
+    command -v yazi >/dev/null || [ -x "$HOME/.local/bin/yazi" ] || fetch_release_bin \
+      "https://github.com/sxyazi/yazi/releases/latest/download/yazi-$ARCH-unknown-linux-musl.zip" yazi ya
+    command -v glow >/dev/null || [ -x "$HOME/.local/bin/glow" ] || {
+      GLOW_VER="$(curl -fsSL https://api.github.com/repos/charmbracelet/glow/releases/latest 2>/dev/null \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || true)"
+      if [ -n "$GLOW_VER" ]; then
+        fetch_release_bin "https://github.com/charmbracelet/glow/releases/download/v$GLOW_VER/glow_${GLOW_VER}_Linux_$GLOW_ARCH.tar.gz" glow
+      else
+        info "경고: glow 최신 버전 확인 실패 — 설치 건너뜀"
+      fi
+    }
+    command -v chafa >/dev/null || [ -x "$HOME/.local/bin/chafa" ] || {
+      CHAFA_TGZ="$(curl -fsSL https://hpjansson.org/chafa/releases/static/ 2>/dev/null \
+        | grep -oE "chafa-[0-9.]+-[0-9]+-$ARCH-linux-gnu\.tar\.gz" | sort -uV | tail -1 || true)"
+      if [ -n "$CHAFA_TGZ" ]; then
+        fetch_release_bin "https://hpjansson.org/chafa/releases/static/$CHAFA_TGZ" chafa
+      else
+        info "경고: chafa 정적 빌드 확인 실패 — 설치 건너뜀"
+      fi
+    }
+  fi
+fi
+deploy_file viewer/fview "$HOME/.local/bin/fview" fview
+chmod +x "$HOME/.local/bin/fview"
+deploy_file viewer/yazi.toml "$HOME/.config/yazi/yazi.toml" yazi.toml
+deploy_file viewer/keymap.toml "$HOME/.config/yazi/keymap.toml" yazi-keymap.toml
+# piper: 명령 출력을 미리보기로 쓰는 공식 플러그인. fview 연결에 필요하다.
+YA="$(command -v ya || true)"; [ -z "$YA" ] && [ -x "$HOME/.local/bin/ya" ] && YA="$HOME/.local/bin/ya"
+if [ -d "$HOME/.config/yazi/plugins/piper.yazi" ]; then
+  :
+elif [ -n "$YA" ]; then
+  preserve_original "$HOME/.config/yazi/package.toml" yazi-package.toml
+  if "$YA" pkg add yazi-rs/plugins:piper >/dev/null 2>&1; then
+    touch "$BACKUP_DIR/yazi-piper.installed"
+    info "yazi piper 플러그인 설치"
+  else
+    info "경고: yazi piper 플러그인 설치 실패 — 문서형 미리보기는 yazi 기본값으로 동작"
+  fi
+else
+  info "경고: ya 없음 — yazi piper 플러그인 설치 건너뜀"
+fi
+info "터미널 파일 뷰어 배치 완료 (실행: yazi, 단독 미리보기: fview <파일> 100 -p)"
+
+# ── 7.6. Claude Code 외부 확장 (출력 스타일·명령·스킬) ──────
+# claude/extensions.txt 의 저장소를 DOTFILES_EXT_DIR(기본 ~/.local/share/dotfiles-ext)에 클론하고
+# ~/.claude 아래에 심볼릭 링크로 연결한다. 이미 클론돼 있으면 그대로 쓰고(갱신은 git pull), 실제 파일·폴더가 있는 자리는 건드리지 않는다.
+EXT_DIR="${DOTFILES_EXT_DIR:-$HOME/.local/share/dotfiles-ext}"
+if ! command -v git >/dev/null; then
+  info "경고: git 없음 — Claude 외부 확장 건너뜀"
+else
+  while read -r repo slug src link; do
+    case "$repo" in ''|'#'*) continue ;; esac
+    dir="$EXT_DIR/$repo"
+    if [ ! -d "$dir/.git" ]; then
+      if [ -e "$dir" ]; then info "경고: $dir 이 git 저장소가 아님 — $repo 건너뜀"; continue; fi
+      mkdir -p "$EXT_DIR"
+      if git clone -q --depth 1 "https://github.com/$slug.git" "$dir"; then
+        record ext-cloned.txt "$dir"
+        info "클론: $slug → $dir"
+      else
+        info "경고: $slug 클론 실패 — 건너뜀"; continue
+      fi
+    fi
+    [ -e "$dir/$src" ] || { info "경고: $repo 에 $src 없음 — 건너뜀"; continue; }
+    dst="$HOME/.claude/$link"
+    if [ -e "$dst" ] && [ ! -L "$dst" ]; then info "경고: $dst 이 실제 파일·폴더라 유지 — 링크 건너뜀"; continue; fi
+    deploy_symlink "$dir/$src" "$dst" "claude-ext-$(printf '%s' "$link" | tr '/' '-')"
+  done < claude/extensions.txt
+  info "Claude 외부 확장 연결 완료 (출력 스타일 선택: /style 또는 /config)"
+fi
 
 # ── 8. 기본 셸 ─────────────────────────────────────────────
 ZSH_PATH="$(command -v zsh)"
