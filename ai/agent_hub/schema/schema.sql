@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- 3사 에이전트(Claude Code, Antigravity, OpenAI Codex) 공용 세션 및 핸즈오프 스키마
--- 위치: agent_hub.db (기본값: /data4/shared/agent_hub/agent_hub.db)
+-- 위치: 기본 ~/.config/ai/agent_hub/agent_hub.db; AGENT_HUB_DIR 또는 AGENT_HUB_DB로 재지정 가능
 -- ==============================================================================
 
 PRAGMA journal_mode = WAL;

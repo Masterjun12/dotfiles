@@ -14,9 +14,18 @@ import os
 import sqlite3
 import argparse
 
-DEFAULT_DB_DIR = "/data4/shared/agent_hub" if os.path.isdir("/data4/shared/agent_hub") else os.path.expanduser("~/.config/ai/agent_hub")
-DB_PATH = os.getenv("AGENT_HUB_DB", os.path.join(DEFAULT_DB_DIR, "agent_hub.db"))
-LATEST_HANDOFF_MD = os.path.join(DEFAULT_DB_DIR, "LATEST_HANDOFF.md")
+def resolve_agent_hub_dir():
+    configured = os.environ.get("AGENT_HUB_DIR")
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    return os.path.expanduser("~/.config/ai/agent_hub")
+
+
+DEFAULT_DB_DIR = resolve_agent_hub_dir()
+DB_PATH = os.path.abspath(os.path.expanduser(
+    os.getenv("AGENT_HUB_DB", os.path.join(DEFAULT_DB_DIR, "agent_hub.db"))
+))
+LATEST_HANDOFF_MD = os.path.join(os.path.dirname(DB_PATH), "LATEST_HANDOFF.md")
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)

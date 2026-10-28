@@ -1,6 +1,6 @@
 # dotfiles
 
-zsh + starship 셸 환경과 AGY·Claude·Codex의 상태줄·공통 규칙·핸즈오프 훅·에이전트 어댑터를 새 머신에 맞추는 부트스트랩 저장소. macOS(Homebrew)와 Linux(dnf/apt), Windows(WSL2) 를 같은 `install.sh` 로 설치하고, `uninstall.sh` 로 설치 전 상태까지 되돌린다.
+zsh + starship 셸 환경, code-server 웹 IDE, AGY·Claude·Codex의 상태줄·공통 규칙·핸즈오프 훅·에이전트 어댑터를 새 머신에 맞추는 부트스트랩 저장소. macOS(Homebrew)와 Linux/WSL2(dnf·apt·pacman·zypper·apk)를 같은 `install.sh` 로 설치하고, `uninstall.sh` 로 설치 전 상태까지 되돌린다.
 
 어느 머신에나 그대로 적용할 수 있는 설정만 추적한다. 호스트 alias·내부 URL·API 키·개인 에이전트 지침처럼 머신이나 사람에 묶인 것은 저장소 밖(`~/.zshrc.local`, `~/.secrets.zsh`)에 둔다 — 자세한 경계는 [추적 범위](#추적-범위) 참고. 에이전트·기여자용 상세 규칙은 [AGENTS.md](AGENTS.md).
 
@@ -19,7 +19,7 @@ dotfiles/
 │   └── zshrc.local.example    # 머신별 alias/함수 템플릿(placeholder) → ~/.zshrc.local (미추적) 로 복사해 사용
 ├── claude/
 │   ├── statusline-command.sh  # Claude Code 하단 statusline 2줄 (경로·git·모델·컨텍스트 / 비용·캐시·한도·버전)
-│   └── extensions.txt         # Claude 외부 확장 목록 (출력 스타일·/style·스킬) — 7.6 단계가 클론·링크
+│   └── extensions.txt         # Claude 외부 확장 목록 (출력 스타일·/style·스킬) — 7.3 단계가 클론·링크
 ├── viewer/
 │   ├── fview                  # 확장자별 미리보기 변환기 (md·ipynb·docx·pdf·csv·xlsx·pptx·html·SQLite 등)
 │   ├── yazi.toml              # yazi 미리보기·Enter 열기를 fview 에 연결
@@ -47,20 +47,22 @@ cd dotfiles && ./install.sh
 
 | # | 단계 | 내용 |
 |---|---|---|
-| 0 | 의존성 검사 | Git Bash/MSYS/Cygwin 이면 "WSL2 에서 실행" 안내와 함께 중단. `curl`·`unzip`·`python3`, macOS 는 `brew`, Linux 는 `dnf`/`apt-get` 이 없으면 **홈 파일을 하나도 만들지 않고** 종료. `~/.claude/settings.json`, `~/.gemini/antigravity-cli/settings.json` 이 깨진 JSON 이거나 `config.toml` 을 편집할 수 없는 상태(깨진 TOML 등)여도 여기서 중단. |
-| 1 | 패키지 설치 | macOS: brew 로 `starship eza bat zoxide fzf fd jq zsh-autosuggestions zsh-syntax-highlighting` (없을 때만). Linux: `zsh`(dnf/apt), `starship`(공식 스크립트, sudo 없으면 `~/.local/bin`), 자동완성 플러그인 2종(dnf 는 EPEL 활성화 후), `jq`(sudo 가능할 때만, 아니면 경고). |
+| 0 | 의존성 검사 | Git Bash/MSYS/Cygwin 및 macOS/Linux 이외 OS 는 **홈 파일을 하나도 만들지 않고** 중단. `curl`·`unzip`·`python3`·`tar`, macOS 는 `brew`, Linux 는 `dnf`·`apt-get`·`pacman`·`zypper`·`apk` 중 하나가 없으면 중단. 설정 JSON/TOML 이 깨졌거나 수정할 수 없는 상태여도 여기서 중단. |
+| 1 | 패키지 설치 | macOS: brew 로 셸 도구를 없을 때만 설치. Linux: 감지한 패키지 관리자에서 `zsh`를 설치하고, 자동완성 플러그인·`jq`는 없을 때와 관리자 권한이 있을 때 설치한다. `starship`은 공식 설치 스크립트를 사용한다. |
 | 2 | starship.toml | `starship/starship.toml` → `~/.config/starship.toml` |
 | 2.5 | Nerd Fonts | GitHub 최신 릴리스에서 `JetBrainsMono`, `D2Coding` zip 을 받아 폰트 디렉터리(macOS `~/Library/Fonts`, Linux `~/.local/share/fonts` + `fc-cache`)에 설치. 폰트별 `.nerd-font-<name>-installed` 마커 파일로 재설치 방지. **WSL 에서는 건너뛰고 안내만** 한다 — [Windows (WSL2)](#windows-wsl2) 참고. |
 | 3 | zshrc | OS 에 맞는 `zsh/zshrc.*` → `~/.zshrc`. 머신별 alias/함수는 `~/.zshrc.local`(미추적) 에 두며 스크립트가 만들지 않는다 — 없으면 안내만. |
 | 4 | Claude statusline | `claude/statusline-command.sh` → `~/.claude/statusline-command.sh` (+x). `~/.claude/settings.json` 의 `statusLine` 및 `ui.footer.hideContextPercentage` 키 merge (다른 키 불변, 파일 없으면 생성). 원자적 쓰기(`os.replace`) 및 mode 보존. |
 | 5 | Antigravity statusline | CLI 설치 여부와 무관하게 `agy/statusline-command.sh` → `~/.gemini/antigravity-cli/statusline-command.sh` (+x). `~/.gemini/antigravity-cli/settings.json` 의 `statusLine` 및 `ui.footer` 키 merge. |
 | 6 | Codex status line | CLI 설치 여부와 무관하게 `codex/status-line.py apply` 로 `config.toml` 의 `[tui]` `status_line` 키만 merge (다른 테이블·키·주석 불변, 파일 없으면 생성). |
-| 7 | 3사 공통 규칙·메모리·훅·에이전트 | `ai/AGENTS.md` → `~/.config/ai/AGENTS.md` (SSOT), 없으면 `ai/MEMORY.example.md` → `~/.config/ai/MEMORY.md` 생성. `~/.claude/CLAUDE.md`, `~/.gemini/AGENTS.md`, `~/.codex/AGENTS.md` 를 `~/.config/ai/AGENTS.md` 에 심볼릭 링크로 일괄 연결. 핸즈오프 훅, 런타임별 역할 어댑터 10개, 설정 템플릿, `codex-pretty`를 함께 배치한다. |
-| 7.5 | 터미널 파일 뷰어 | `yazi`·`ya`·`glow`·`chafa` 를 없을 때만 설치(macOS brew, Linux 는 GitHub 정적 바이너리 → `~/.local/bin`, 실패 시 경고만). `viewer/fview` → `~/.local/bin/fview`, `viewer/{yazi,keymap}.toml` → `~/.config/yazi/`, `ya pkg add yazi-rs/plugins:piper`. [터미널 파일 뷰어](#터미널-파일-뷰어) 참고. |
-| 7.6 | Claude 외부 확장 | `claude/extensions.txt` 의 저장소(attention-span, andrej-karpathy-skills, anti-slop)를 `DOTFILES_EXT_DIR`(기본 `~/.local/share/dotfiles-ext`)에 클론(이미 있으면 재사용)하고 `~/.claude/{output-styles,commands,skills}` 아래에 심볼릭 링크. 실제 파일·폴더가 있는 자리는 건드리지 않는다. 기본 출력 스타일은 켜지 않는다(`/style` 또는 `/config` 로 선택). |
+| 7 | 3사 공통 규칙·메모리·훅·에이전트 | `ai/AGENTS.md` → `~/.config/ai/AGENTS.md` (SSOT), 없으면 `ai/MEMORY.example.md` → `~/.config/ai/MEMORY.md` 생성. `~/.claude/CLAUDE.md`, `~/.gemini/AGENTS.md`, `~/.codex/AGENTS.md` 를 `~/.config/ai/AGENTS.md` 에 심볼릭 링크로 일괄 연결. 핸즈오프 훅, 런타임별 역할 어댑터 10개, 설정 템플릿, `codex-pretty`를 함께 배치한다. 메모리·훅·백업은 사용자 전용 권한으로 저장한다. |
+| 7.1 | Agent Hub와 스킬 통합 | 세션·핸즈오프 SQLite와 통합 스킬 디렉터리를 설치한다. 기본 경로는 `~/.config/ai/agent_hub`이며 `AGENT_HUB_DIR`로 바꿀 수 있다. 새 DB는 Python 표준 SQLite로 권한을 제한해 초기화한다. 이미 존재하는 스킬 디렉터리나 다른 링크는 보존하고 건너뛴다. |
+| 7.2 | 터미널 파일 뷰어 | `yazi`·`ya`·`glow`·`chafa` 를 없을 때만 설치(macOS brew, Linux 는 GitHub 정적 바이너리 → `~/.local/bin`, 실패 시 경고만). `viewer/fview` → `~/.local/bin/fview`, `viewer/{yazi,keymap}.toml` → `~/.config/yazi/`, `ya pkg add yazi-rs/plugins:piper`. [터미널 파일 뷰어](#터미널-파일-뷰어) 참고. |
+| 7.3 | Claude 외부 확장 | `claude/extensions.txt` 의 저장소(attention-span, andrej-karpathy-skills, anti-slop)를 `DOTFILES_EXT_DIR`(기본 `~/.local/share/dotfiles-ext`)에 클론(이미 있으면 재사용)하고 `~/.claude/{output-styles,commands,skills}` 아래에 심볼릭 링크. 실제 파일·폴더가 있는 자리는 건드리지 않는다. 기본 출력 스타일은 켜지 않는다(`/style` 또는 `/config` 로 선택). |
+| 7.4 | 웹 IDE | `code-server`가 없을 때 macOS는 Homebrew, Linux/WSL2는 `~/.local`에 설치한다. 서버는 자동 시작하지 않으며, Linux standalone은 x86_64/arm64만 지원한다. |
 | 8 | 기본 셸 | `$SHELL` 이 zsh 가 아니면 `chsh -s <zsh 경로>` 안내만 (자동 변경 안 함). |
 
-런타임 의존성: `curl`, `unzip`, `python3`(0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행한다. `jq` 는 statusline 스크립트 런타임 전용이라 1 단계에서 자동 설치한다(Linux 는 sudo 가능할 때만).
+런타임 의존성: `curl`, `unzip`, `python3`, `tar`(0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행한다. `jq` 는 statusline 스크립트 런타임 전용이라 Linux 패키지 관리자로 설치한다(관리자 권한이 없으면 건너뛴다).
 
 멱등(idempotent): 재실행해도 안전하다. 배치 대상 파일(`starship.toml`·`.zshrc`·`statusline-command.sh`)은 기존 파일과 내용이 다를 때만 `.bak` 백업 후 덮어쓴다 — `.bak` 은 1세대만 유지되므로 두 번 연속 다른 내용을 배치하면 첫 백업은 사라진다.
 
@@ -78,7 +80,7 @@ wsl --install            # PowerShell(관리자). 기본 배포판 Ubuntu 설치
 
 ```bash
 # WSL 셸 안에서
-sudo apt-get update && sudo apt-get install -y git curl unzip python3
+sudo apt-get update && sudo apt-get install -y git curl unzip python3 tar
 git clone https://github.com/wooring12/dotfiles.git
 cd dotfiles && ./install.sh
 chsh -s "$(command -v zsh)"
@@ -95,7 +97,7 @@ Windows 사용자 프로필은 WSL 의 `$HOME` 밖이라 스크립트가 자동�
 
 ```bash
 ./uninstall.sh            # 배치 파일 복원/제거 + settings.json statusLine·Codex status_line 키 복원 + Nerd Font 제거
-./uninstall.sh --purge    # 위에 더해 install.sh 가 새로 설치한 brew/dnf/apt 패키지·바이너리(starship·yazi·glow·chafa)·클론한 확장 저장소 제거
+./uninstall.sh --purge    # 위에 더해 install.sh 가 새로 설치한 패키지·바이너리(code-server 포함)·클론한 확장 저장소 제거
 ./uninstall.sh --keep-backup   # ~/.dotfiles-backup 을 남김 (기본은 복원 후 삭제)
 ```
 
@@ -103,9 +105,9 @@ Windows 사용자 프로필은 WSL 의 `$HOME` 밖이라 스크립트가 자동�
 - `settings.json` 은 `statusLine` 키만 설치 전 값으로 되돌리고 다른 키(permissions/hooks/model 등)는 그대로 둔다. 설치 전에 파일이 없었고 남는 키도 없으면 파일 자체를 지운다. 쓰기는 install 과 같은 원자적 교체이며, 깨진 JSON 이면 손대지 않고 중단한다.
 - `~/.codex/config.toml` 도 `[tui]` 의 `status_line` 키만 설치 전 값으로 되돌린다. 설치 전에 키가 없었으면 키를 지우고, 그 결과 설치가 만든 `[tui]` 테이블이나 파일이 비면 같이 지운다. 설치가 Codex 단계를 건너뛴 머신에서는 아무것도 하지 않는다.
 - `~/.zshrc.local`, `~/.secrets.zsh`, `~/.claude/CLAUDE.md` 는 사용자 파일이므로 건드리지 않는다.
-- 7.5·7.6 단계의 `fview`·yazi 설정·Claude 확장 링크는 설치 기록이 있는 것만 되돌린다. piper 플러그인은 설치 표시(`yazi-piper.installed`)가 있을 때만 지우고, 클론한 확장 저장소는 `--purge` 때만 지운다.
+- 7.2·7.3 단계의 `fview`·yazi 설정·Claude 확장 링크는 설치 기록이 있는 것만 되돌린다. piper 플러그인은 설치 표시(`yazi-piper.installed`)가 있을 때만 지우고, 클론한 확장 저장소는 `--purge` 때만 지운다.
 - 폰트는 manifest 에 적힌 파일만 지운다. manifest 없이 설치된 옛 머신은 마커만 지우고 경고를 낸다.
-- `--purge` 는 `install.sh` 가 **새로 설치했다고 기록한 것만** 제거한다. 이미 깔려 있던 starship/eza 등은 건드리지 않는다.
+- `--purge` 는 `install.sh` 가 **새로 설치했다고 기록한 것만** 제거한다. 이미 깔려 있던 starship/eza/code-server 등은 건드리지 않고, Agent Hub DB·스킬 내용도 사용자 데이터로 보존한다.
 - 끝나면 `~/.zshrc` 가 원본(또는 없음)으로 돌아가 zsh 기본 프롬프트로 동작한다. 기본 셸 자체는 `chsh` 로 직접 되돌린다.
 - 실제 홈에 영향 없이 시험하려면 `HOME=$(mktemp -d) ./install.sh && HOME=<같은 경로> ./uninstall.sh`.
 
@@ -199,9 +201,30 @@ Claude Code, Antigravity, OpenAI Codex 3사가 생성하는 세션 대화 로그
   - `agent-hub stats`: 3사 세션 및 발화 통계 확인.
   - `agent-hub sync`: 3사 최신 세션 즉시 동기화.
 - **스킬 단일 원본 (Skills SSOT)**:
-  - `/data4/shared/agent_hub/skills/` (또는 `~/.config/ai/agent_hub/skills/`)에 스킬을 단일화하고, `~/.claude/skills`, `~/.gemini/antigravity-cli/skills`, `~/.codex/skills`, `~/.config/ai/skills`를 전부 심볼릭 링크로 연결하여 어디서든 동일한 스킬 세트를 실시간 공유.
-- **실행 환경 일원화**:
-  - `~/.local/bin/codex` 래퍼를 통해 3사 에이전트 모두 `~/.local/bin`에서 홈 기준으로 통일 실행.
+  - `~/.config/ai/agent_hub/skills/`에 스킬을 단일화하고, `~/.claude/skills`, `~/.gemini/antigravity-cli/skills`, `~/.codex/skills`, `~/.config/ai/skills`를 전부 심볼릭 링크로 연결하여 같은 사용자 계정의 에이전트가 동일한 스킬을 공유.
+  - 별도 저장 위치를 쓸 때는 모든 에이전트 실행 환경에 `AGENT_HUB_DIR`과 선택 사항인 `AGENT_HUB_DB`를 지정한다. DB 기본 권한은 사용자 전용(`0600`)이므로 세 CLI는 같은 OS 사용자로 실행한다.
+- **대화 기록 보안**: DB에는 프롬프트·응답·도구 입력이 저장되며 암호화되지는 않는다. 파일 권한은 사용자 전용(`0600`)이지만 계정 접근과 백업은 같은 민감도로 보호한다.
+- **Codex 실행 래퍼**:
+  - `~/.local/bin/codex`가 비어 있을 때만 래퍼를 설치한다. 이미 실행 파일이 있으면 보존하고, 래퍼는 `CODEX_REAL_BIN` 또는 PATH에서 실제 CLI를 찾아 실행한다.
+  - `CODEX_HOME`은 별도 지정이 없으면 표준 사용자 경로인 `~/.codex`를 쓴다.
+
+## 웹 IDE (code-server)
+
+`install.sh`는 Coder `code-server`가 없을 때만 설치한다. macOS는 Homebrew, Linux와 WSL2는 `~/.local`의 사용자 영역에 standalone 방식으로 설치한다. Linux는 x86_64·arm64 릴리스만 지원하며, 다른 아키텍처에서는 경고 후 건너뛴다. 기본 설정 폴더와 비밀번호 파일 권한은 사용자 전용으로 제한한다. [공식 설치 안내](https://coder.com/docs/code-server/latest/install).
+
+설치 후 서버는 자동 실행하지 않는다. 로컬 브라우저에서 쓸 때는 대상 환경에서 다음 명령으로 시작한다.
+
+```bash
+code-server --bind-addr localhost:8080
+```
+
+브라우저에서 `http://localhost:8080`을 열고, 비밀번호는 `~/.config/code-server/config.yaml`에서 확인한다. 원격 Linux/WSL2에서는 로컬 컴퓨터에서 SSH 터널을 연 뒤 같은 주소로 접속한다.
+
+```bash
+ssh -N -L 8080:localhost:8080 user@host
+```
+
+`uninstall.sh --purge`는 dotfiles가 설치한 standalone 버전 디렉터리 또는 Homebrew 패키지만 제거한다. `~/.config/code-server` 설정과 사용자 데이터는 유지한다.
 
 ## 터미널 파일 뷰어
 

@@ -21,26 +21,30 @@
 #        - ~/.config/ai/AGENTS.md 배치 및 ~/.config/ai/MEMORY.md 초기화
 #        - ~/.claude/CLAUDE.md, ~/.gemini/AGENTS.md, ~/.codex/AGENTS.md 심볼릭 링크 연결
 #        - Codex 2줄 보조 표시줄(codex-pretty), 10개 역할의 런타임 어댑터, 핸즈오프 훅
-#   7.5. 터미널 파일 뷰어 — yazi·glow·chafa (없을 때만), ~/.local/bin/fview, ~/.config/yazi/{yazi,keymap}.toml, piper 플러그인
-#   7.6. Claude Code 외부 확장 — claude/extensions.txt 의 저장소를 DOTFILES_EXT_DIR 에 클론하고
+#   7.1. 3사 Agent Hub와 스킬 저장소 — 중앙 SQLite 및 통합 스킬 경로
+#   7.2. 터미널 파일 뷰어 — yazi·glow·chafa (없을 때만), ~/.local/bin/fview, ~/.config/yazi/{yazi,keymap}.toml, piper 플러그인
+#   7.3. Claude Code 외부 확장 — claude/extensions.txt 의 저장소를 DOTFILES_EXT_DIR 에 클론하고
 #        ~/.claude/{output-styles,commands,skills} 아래에 심볼릭 링크
+#   7.4. 웹 IDE — code-server 를 macOS Homebrew 또는 Linux/WSL 사용자 영역에 설치 (기존 설치는 건너뜀)
 #   8.   기본 셸이 zsh 가 아니면 chsh 안내
 #
-# 런타임 의존성: curl, unzip, python3 (0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행.
-#   jq 는 statusline 스크립트 런타임 전용 — 1 단계에서 brew/dnf/apt 로 자동 설치 (sudo 불가 시 경고만).
+# 런타임 의존성: curl, unzip, python3, tar (0 단계에서 검사). macOS 는 Homebrew 필수. Windows 는 WSL2 안에서 실행.
+#   jq 는 statusline 스크립트 런타임 전용 — 1 단계에서 brew/Linux 패키지 관리자로 설치 (권한이 없으면 경고만).
 # 멱등(idempotent): 재실행해도 안전하다. 배치 대상은 내용이 다를 때만 .bak 백업 후 덮어쓴다.
 #
 # 되돌리기: ./uninstall.sh — 최초 실행 시 ~/.dotfiles-backup/ 에 보관한 원본과 manifest 를 기준으로 복원한다.
 #   - <name>.orig     : 덮어쓰기 전 원본 (최초 1회만 기록, 이후 실행은 갱신하지 않음)
 #   - <name>.absent   : 원래 그 파일이 없었다는 표시
 #   - brew-installed.txt / pkg-installed.txt / bin-installed.txt : 이 스크립트가 새로 설치한 것만 기록
-#   - ext-cloned.txt : 7.6 단계가 새로 클론한 확장 저장소 (--purge 때만 삭제)
-#   - yazi-piper.installed : 7.5 단계가 piper 플러그인을 설치했다는 표시
+#   - ext-cloned.txt : 7.3 단계가 새로 클론한 확장 저장소 (--purge 때만 삭제)
+#   - code-server-installed.txt : 7.4 단계가 새로 설치한 사용자 영역 버전 디렉터리
+#   - yazi-piper.installed : 7.2 단계가 piper 플러그인을 설치했다는 표시
 #   - settings.json.orig : settings.json 설치 전 전체 내용 (없었으면 settings.json.absent)
 #   - gemini-settings.json.orig : ~/.gemini/antigravity-cli/settings.json 설치 전 전체 내용
 #   - codex-config.toml.orig : ~/.codex/config.toml 설치 전 전체 내용 (없었으면 codex-config.toml.absent)
 
 set -euo pipefail
+umask 077
 cd "$(dirname "$0")"
 
 OS="$(uname -s)"
@@ -53,12 +57,21 @@ case "$OS" in
   MINGW*|MSYS*|CYGWIN*)
     die "Git Bash/MSYS/Cygwin 은 지원하지 않음 (zsh·패키지 매니저 없음) — WSL2 를 설치(wsl --install)하고 그 안에서 실행 (홈 파일은 변경하지 않았음)" ;;
 esac
+case "$OS" in
+  Darwin|Linux) ;;
+  *) die "지원 OS는 macOS와 Linux/WSL2 — 현재: $OS (홈 파일은 변경하지 않았음)" ;;
+esac
 missing=()
-for cmd in curl unzip python3; do command -v "$cmd" >/dev/null || missing+=("$cmd"); done
+for cmd in curl unzip python3 tar; do command -v "$cmd" >/dev/null || missing+=("$cmd"); done
 if [ "$OS" = "Darwin" ]; then
   command -v brew >/dev/null || missing+=("brew (https://brew.sh)")
 else
-  command -v dnf >/dev/null || command -v apt-get >/dev/null || missing+=("dnf 또는 apt-get")
+  if command -v dnf >/dev/null; then PKG_MANAGER=dnf
+  elif command -v apt-get >/dev/null; then PKG_MANAGER=apt
+  elif command -v pacman >/dev/null; then PKG_MANAGER=pacman
+  elif command -v zypper >/dev/null; then PKG_MANAGER=zypper
+  elif command -v apk >/dev/null; then PKG_MANAGER=apk
+  else missing+=("dnf, apt-get, pacman, zypper 또는 apk"); fi
 fi
 if [ "${#missing[@]}" -gt 0 ]; then
   die "필수 명령 누락: ${missing[*]} — 설치 후 다시 실행 (홈 파일은 변경하지 않았음)"
@@ -87,6 +100,9 @@ is_wsl() {
 
 BACKUP_DIR="$HOME/.dotfiles-backup"
 mkdir -p "$BACKUP_DIR"
+if [ ! -L "$BACKUP_DIR" ]; then chmod 700 "$BACKUP_DIR"; fi
+mkdir -p "$HOME/.config/ai"
+if [ ! -L "$HOME/.config/ai" ]; then chmod 700 "$HOME/.config/ai"; fi
 
 # 최초 실행 시에만 원본 상태를 기록 (있으면 .orig 로 복사, 없으면 .absent 마커)
 preserve_original() {   # preserve_original <대상 경로> <기록 이름>
@@ -132,17 +148,52 @@ record() {              # record <manifest 파일명> <값>
 }
 
 # ── 1. 패키지 설치 ──────────────────────────────────────────
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"
+  elif command -v sudo >/dev/null 2>&1; then sudo "$@"
+  else return 127; fi
+}
+can_install_system_packages() {
+  [ "$(id -u)" -eq 0 ] || { command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; }
+}
+plugin_files_exist() {
+  case "$1" in
+    zsh-autosuggestions)
+      [ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ] \
+        || [ -f /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ] ;;
+    zsh-syntax-highlighting)
+      [ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] \
+        || [ -f /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] ;;
+    *) return 1 ;;
+  esac
+}
+install_system_packages() {
+  case "$PKG_MANAGER" in
+    dnf) run_privileged dnf install -y "$@" ;;
+    apt) run_privileged apt-get install -y "$@" ;;
+    pacman) run_privileged pacman -S --needed --noconfirm "$@" ;;
+    zypper) run_privileged zypper --non-interactive install "$@" ;;
+    apk) run_privileged apk add "$@" ;;
+  esac
+}
+package_is_installed() {
+  case "$PKG_MANAGER" in
+    dnf) rpm -q "$1" >/dev/null 2>&1 ;;
+    apt) dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed' ;;
+    pacman) pacman -Q "$1" >/dev/null 2>&1 ;;
+    zypper) rpm -q "$1" >/dev/null 2>&1 ;;
+    apk) apk info -e "$1" >/dev/null 2>&1 ;;
+  esac
+}
 if [ "$OS" = "Darwin" ]; then
   for pkg in starship eza bat zoxide fzf fd jq zsh-autosuggestions zsh-syntax-highlighting; do
     brew list "$pkg" >/dev/null 2>&1 || { info "brew install $pkg"; brew install "$pkg"; record brew-installed.txt "$pkg"; }
   done
 else
-  # Linux (RHEL/Rocky/Debian 계열 공통)
+  # Linux 배포판 계열별 패키지 관리자: Fedora/RHEL, Debian/Ubuntu, Arch, openSUSE, Alpine.
   command -v zsh >/dev/null || {
     info "zsh 설치"
-    if command -v dnf >/dev/null; then sudo dnf install -y zsh
-    elif command -v apt-get >/dev/null; then sudo apt-get install -y zsh
-    else echo "지원하지 않는 패키지 매니저 — zsh 수동 설치 필요"; exit 1; fi
+    install_system_packages zsh || die "zsh 설치 실패 — 패키지 관리자 권한·저장소를 확인한 뒤 다시 실행"
     record pkg-installed.txt zsh
   }
   command -v starship >/dev/null || {
@@ -156,31 +207,35 @@ else
       record bin-installed.txt "$HOME/.local/bin/starship"
     fi
   }
-  if [ ! -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ] || [ ! -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]; then
-    if sudo -n true 2>/dev/null; then
-      info "zsh-autosuggestions / zsh-syntax-highlighting 설치"
-      if command -v dnf >/dev/null; then
-        rpm -q epel-release >/dev/null 2>&1 || sudo dnf install -y epel-release || true
-        { sudo dnf install -y zsh-autosuggestions zsh-syntax-highlighting && record pkg-installed.txt zsh-autosuggestions && record pkg-installed.txt zsh-syntax-highlighting; } \
-          || info "경고: 자동완성 플러그인 설치 실패 (sudo/repo 확인 필요)"
-      elif command -v apt-get >/dev/null; then
-        { sudo apt-get install -y zsh-autosuggestions zsh-syntax-highlighting && record pkg-installed.txt zsh-autosuggestions && record pkg-installed.txt zsh-syntax-highlighting; } \
-          || info "경고: 자동완성 플러그인 설치 실패 (sudo/repo 확인 필요)"
+  plugins_missing=()
+  for pkg in zsh-autosuggestions zsh-syntax-highlighting; do
+    if ! plugin_files_exist "$pkg" && ! package_is_installed "$pkg"; then plugins_missing+=("$pkg"); fi
+  done
+  if [ "${#plugins_missing[@]}" -gt 0 ]; then
+    if can_install_system_packages; then
+      if [ "$PKG_MANAGER" = dnf ] && ! rpm -q epel-release >/dev/null 2>&1; then
+        if run_privileged dnf install -y epel-release >/dev/null 2>&1; then record pkg-installed.txt epel-release; fi
+      fi
+      info "zsh 자동완성 플러그인 설치"
+      if install_system_packages "${plugins_missing[@]}"; then
+        for pkg in "${plugins_missing[@]}"; do record pkg-installed.txt "$pkg"; done
+      else
+        info "경고: zsh 자동완성 플러그인 설치 실패 — 저장소·권한을 확인"
       fi
     else
-      info "경고: 자동완성 플러그인 없음 + sudo 불가 — 설치 건너뜀 (dnf/apt install zsh-autosuggestions zsh-syntax-highlighting)"
+      info "경고: zsh 자동완성 플러그인 설치 건너뜀 — 관리자 권한이 필요"
     fi
   fi
-  # jq — statusline 런타임 전용. sudo 가 없으면 설치를 건너뛰고 경고만 (셸 환경 자체는 jq 없이도 동작)
-  command -v jq >/dev/null || {
-    if sudo -n true 2>/dev/null; then
+  # jq — statusline 런타임 전용. 기본 셸은 jq 없이도 동작한다.
+  if ! command -v jq >/dev/null; then
+    if can_install_system_packages; then
       info "jq 설치"
-      if command -v dnf >/dev/null; then sudo dnf install -y jq && record pkg-installed.txt jq
-      else sudo apt-get install -y jq && record pkg-installed.txt jq; fi
+      if install_system_packages jq; then record pkg-installed.txt jq
+      else info "경고: jq 설치 실패 — Claude/AGY statusline은 jq 설치 전까지 제한"; fi
     else
-      info "경고: jq 없음 + sudo 불가 — Claude statusline 은 jq 설치 전까지 동작하지 않음 (dnf/apt install jq)"
+      info "경고: jq 설치 건너뜀 — 관리자 권한이 없어 statusline에서 jq를 사용할 수 없음"
     fi
-  }
+  fi
 fi
 
 # ── 2. starship.toml ───────────────────────────────────────
@@ -234,8 +289,8 @@ info ".zshrc 배치 완료 ($SRC)"
 # ── 4. Claude Code statusline ──────────────────────────────
 # 스크립트 복사 + settings.json 에 statusLine 및 ui.footer 키 merge (다른 키는 건드리지 않음)
 deploy_file claude/statusline-command.sh "$HOME/.claude/statusline-command.sh" statusline-command.sh
-chmod +x "$HOME/.claude/statusline-command.sh"
-command -v jq >/dev/null || info "경고: statusline 스크립트는 jq 필요 — 설치 권장 (brew/dnf/apt install jq)"
+chmod 700 "$HOME/.claude/statusline-command.sh"
+command -v jq >/dev/null || info "경고: statusline 스크립트는 jq 필요 — 배포판 패키지 관리자로 설치 권장"
 python3 - <<'PYEOF'
 import json, os, sys, tempfile
 home = os.path.expanduser("~")
@@ -308,7 +363,7 @@ info "Claude statusline 배치 완료"
 # 스크립트 복사 + settings.json 에 statusLine 및 ui.footer 키 merge (다른 키는 건드리지 않음)
 if :; then  # CLI 설치 여부와 무관하게 3사 설정을 준비한다.
   deploy_file agy/statusline-command.sh "$HOME/.gemini/antigravity-cli/statusline-command.sh" agy-statusline-command.sh
-  chmod +x "$HOME/.gemini/antigravity-cli/statusline-command.sh"
+  chmod 700 "$HOME/.gemini/antigravity-cli/statusline-command.sh"
   python3 - <<'PYEOF'
 import json, os, sys, tempfile
 home = os.path.expanduser("~")
@@ -389,11 +444,15 @@ fi
 # ── 7. Global AI Agent Rules & SSOT Memory ──────────────────
 # ~/.config/ai/AGENTS.md 를 단일 원본(SSOT)으로 배치하고 각 에이전트 경로에 심볼릭 링크
 deploy_file ai/AGENTS.md "$HOME/.config/ai/AGENTS.md" ai-agents.md
+chmod 600 "$HOME/.config/ai/AGENTS.md"
 if [ ! -f "$HOME/.config/ai/MEMORY.md" ]; then
   deploy_file ai/MEMORY.example.md "$HOME/.config/ai/MEMORY.md" ai-memory.md
   info "새 MEMORY.md 템플릿 생성 (~/.config/ai/MEMORY.md)"
 else
   info "기존 MEMORY.md 유지 (~/.config/ai/MEMORY.md)"
+fi
+if [ -f "$HOME/.config/ai/MEMORY.md" ] && [ ! -L "$HOME/.config/ai/MEMORY.md" ]; then
+  chmod 600 "$HOME/.config/ai/MEMORY.md"
 fi
 
 # Claude Code: ~/.claude/CLAUDE.md -> ~/.config/ai/AGENTS.md
@@ -411,9 +470,11 @@ info "글로벌 에이전트 규칙(AGENTS.md) 배포 및 심볼릭 링크 완�
 
 # 3사 공용 훅·설정 템플릿·역할 어댑터: 기존 사용자 설정은 키 단위로 보존한다.
 deploy_file ai/hooks/session_handoff_guard.py "$HOME/.config/ai/hooks/session_handoff_guard.py" session-handoff-guard.py
+if [ ! -L "$HOME/.config/ai/hooks" ]; then chmod 700 "$HOME/.config/ai/hooks"; fi
+if [ ! -L "$HOME/.config/ai/hooks/session_handoff_guard.py" ]; then chmod 600 "$HOME/.config/ai/hooks/session_handoff_guard.py"; fi
 deploy_file codex/statusbar.py "$HOME/.local/share/codex-statusbar/statusbar.py" codex-statusbar.py
 deploy_file codex/codex-pretty "$HOME/.local/bin/codex-pretty" codex-pretty
-chmod +x "$HOME/.local/bin/codex-pretty"
+chmod 700 "$HOME/.local/bin/codex-pretty"
 for setting in claude.json agy.json gemini-cli.json codex.toml; do
   deploy_file "settings/$setting" "$HOME/.config/ai/settings/$setting" "agent-setting-$setting"
 done
@@ -433,44 +494,88 @@ deploy_file ai/agents/plugin.json "$HOME/.gemini/config/plugins/dotfiles-agent-a
 python3 scripts/agent-config.py apply
 info "3사 훅·역할 어댑터·설정 템플릿 배치 완료 (스킬 본문은 원본 저장소에서 설치)"
 
-# ── 7.7. 3사 공용 에이전트 허브 (Agent Hub) 및 스킬 통합 ──────
-HUB_TARGET="/data4/shared/agent_hub"
-if [ ! -d "$HUB_TARGET" ]; then
+# ── 7.1. 3사 공용 에이전트 허브 (Agent Hub) 및 스킬 통합 ──────
+if [ -n "${AGENT_HUB_DIR:-}" ]; then
+  HUB_TARGET="$(python3 -c 'import os,sys; print(os.path.abspath(os.path.expanduser(sys.argv[1])))' "$AGENT_HUB_DIR")"
+  HUB_TARGET_CUSTOM=1
+else
   HUB_TARGET="$HOME/.config/ai/agent_hub"
+  HUB_TARGET_CUSTOM=0
 fi
-mkdir -p "$HUB_TARGET/scripts" "$HUB_TARGET/schema" "$HUB_TARGET/skills" "$HOME/.local/bin"
+HUB_TARGET_SYMLINK=0
+[ -L "$HUB_TARGET" ] && HUB_TARGET_SYMLINK=1
+mkdir -p "$HUB_TARGET/scripts" "$HUB_TARGET/schema" "$HUB_TARGET/skills" "$HOME/.local/bin" \
+  || die "Agent Hub 경로를 만들 수 없음: $HUB_TARGET"
+HUB_TARGET="$(cd "$HUB_TARGET" && pwd -P)"
+if [ "$HUB_TARGET_CUSTOM" = 0 ] && [ "$HUB_TARGET_SYMLINK" = 0 ]; then chmod 700 "$HUB_TARGET"; fi
+export AGENT_HUB_DIR="$HUB_TARGET"
+if [ -n "${AGENT_HUB_DB:-}" ]; then
+  AGENT_HUB_DB="$(python3 -c 'import os,sys; print(os.path.abspath(os.path.expanduser(sys.argv[1])))' "$AGENT_HUB_DB")"
+else
+  AGENT_HUB_DB="$HUB_TARGET/agent_hub.db"
+fi
+export AGENT_HUB_DB
+mkdir -p "$(dirname "$AGENT_HUB_DB")" || die "Agent Hub DB 디렉터리를 만들 수 없음: $(dirname "$AGENT_HUB_DB")"
 
 deploy_file ai/agent_hub/schema/schema.sql "$HUB_TARGET/schema/schema.sql" agent-hub-schema.sql
 deploy_file ai/agent_hub/scripts/ingest_sessions.py "$HUB_TARGET/scripts/ingest_sessions.py" agent-hub-ingest.py
 deploy_file ai/agent_hub/scripts/agent_hub_cli.py "$HUB_TARGET/scripts/agent_hub_cli.py" agent-hub-cli.py
-chmod +x "$HUB_TARGET/scripts/"*.py 2>/dev/null || true
+chmod 700 "$HUB_TARGET/scripts/"*.py 2>/dev/null || true
 
 # agent-hub CLI 및 codex 래퍼 심볼릭 링크/배치
-deploy_symlink "$HUB_TARGET/scripts/agent_hub_cli.py" "$HOME/.local/bin/agent-hub" agent-hub-bin
+if [ -L "$HOME/.local/bin/agent-hub" ] \
+  && [ "$(readlink "$HOME/.local/bin/agent-hub")" = "$HUB_TARGET/scripts/agent_hub_cli.py" ]; then
+  :
+elif [ ! -e "$HOME/.local/bin/agent-hub" ] && [ ! -L "$HOME/.local/bin/agent-hub" ]; then
+  deploy_symlink "$HUB_TARGET/scripts/agent_hub_cli.py" "$HOME/.local/bin/agent-hub" agent-hub-bin
+else
+  info "기존 ~/.local/bin/agent-hub 유지 — 링크 설치 건너뜀"
+fi
 if [ -f codex/bin/codex ]; then
-  deploy_file codex/bin/codex "$HOME/.local/bin/codex" codex-bin
-  chmod +x "$HOME/.local/bin/codex" 2>/dev/null || true
+  if [ ! -e "$HOME/.local/bin/codex" ] && [ ! -L "$HOME/.local/bin/codex" ] \
+    || grep -q '^# DOTFILES_CODEX_WRAPPER=1$' "$HOME/.local/bin/codex" 2>/dev/null \
+    || { [ -f "$BACKUP_DIR/codex-bin.absent" ] && grep -q '^# Codex CLI 래퍼 스크립트 (환경 자동 감지)$' "$HOME/.local/bin/codex" 2>/dev/null; }; then
+    deploy_file codex/bin/codex "$HOME/.local/bin/codex" codex-bin
+    chmod 700 "$HOME/.local/bin/codex" 2>/dev/null || true
+  else
+    info "기존 ~/.local/bin/codex CLI 유지 — 래퍼 설치 건너뜀"
+  fi
 fi
 
-# 스키마 초기화 (DB 파일이 없을 때만 생성)
-if [ ! -f "$HUB_TARGET/agent_hub.db" ] && command -v sqlite3 >/dev/null 2>&1; then
-  sqlite3 "$HUB_TARGET/agent_hub.db" < "$HUB_TARGET/schema/schema.sql" || true
+# 스키마 보완 (sqlite3 CLI가 없어도 Python 표준 라이브러리를 사용하며, 기존 행은 건드리지 않는다)
+if ! python3 - "$AGENT_HUB_DB" <<'PYEOF'
+import sqlite3, sys
+try:
+    conn = sqlite3.connect(sys.argv[1])
+    names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
+    conn.close()
+    raise SystemExit(0 if {"sessions", "turns", "tool_executions", "handoffs", "turns_fts"} <= names else 1)
+except sqlite3.Error:
+    raise SystemExit(1)
+PYEOF
+then
+  python3 -c 'import os,sqlite3,sys; os.umask(0o077); db,schema=sys.argv[1:]; conn=sqlite3.connect(db); conn.executescript(open(schema, encoding="utf-8").read()); conn.close()' \
+    "$AGENT_HUB_DB" "$HUB_TARGET/schema/schema.sql" \
+    || die "Agent Hub SQLite 초기화 실패: $AGENT_HUB_DB"
 fi
+chmod 600 "$AGENT_HUB_DB"
 
-# 3사 스킬 디렉터리 중앙 통합 심볼릭 링크 강제
+# 3사 스킬 디렉터리 통합 링크. 기존 실제 디렉터리·다른 링크는 사용자 자료로 보고 보존한다.
 for skill_dir in "$HOME/.claude/skills" "$HOME/.gemini/antigravity-cli/skills" "${CODEX_HOME:-$HOME/.codex}/skills" "$HOME/.config/ai/skills"; do
-  if [ ! -L "$skill_dir" ]; then
-    mkdir -p "$(dirname "$skill_dir")"
-    if [ -d "$skill_dir" ]; then
-      cp -a "$skill_dir"/* "$HUB_TARGET/skills/" 2>/dev/null || true
-      rm -rf "$skill_dir"
+  skill_link_name="skills-link-$(basename "$(dirname "$skill_dir")")"
+  if [ -L "$skill_dir" ]; then
+    if [ "$(readlink "$skill_dir")" != "$HUB_TARGET/skills" ]; then
+      info "기존 스킬 링크 유지 — $skill_dir"
     fi
-    deploy_symlink "$HUB_TARGET/skills" "$skill_dir" "skills-link-$(basename "$(dirname "$skill_dir")")"
+  elif [ -e "$skill_dir" ]; then
+    info "기존 스킬 디렉터리 유지 — $skill_dir (공유 링크는 건너뜀)"
+  else
+    deploy_symlink "$HUB_TARGET/skills" "$skill_dir" "$skill_link_name"
   fi
 done
 info "3사 공용 에이전트 허브 및 스킬 단일 원본(SSOT) 배포 완료"
 
-# ── 7.5. 터미널 파일 뷰어 (yazi + glow + chafa, fview 미리보기) ──
+# ── 7.2. 터미널 파일 뷰어 (yazi + glow + chafa, fview 미리보기) ──
 # 바이너리는 없을 때만 설치한다. macOS 는 brew, Linux 는 GitHub 릴리스의 정적 바이너리를 ~/.local/bin 에 둔다.
 # 내려받기에 실패해도 셸 환경과 무관하므로 경고만 하고 계속한다.
 fetch_release_bin() {   # fetch_release_bin <URL> <실행 파일 이름...> — 압축을 풀어 ~/.local/bin 에 배치
@@ -529,7 +634,7 @@ else
   fi
 fi
 deploy_file viewer/fview "$HOME/.local/bin/fview" fview
-chmod +x "$HOME/.local/bin/fview"
+chmod 700 "$HOME/.local/bin/fview"
 deploy_file viewer/yazi.toml "$HOME/.config/yazi/yazi.toml" yazi.toml
 deploy_file viewer/keymap.toml "$HOME/.config/yazi/keymap.toml" yazi-keymap.toml
 # piper: 명령 출력을 미리보기로 쓰는 공식 플러그인. fview 연결에 필요하다.
@@ -549,7 +654,7 @@ else
 fi
 info "터미널 파일 뷰어 배치 완료 (실행: yazi, 단독 미리보기: fview <파일> 100 -p)"
 
-# ── 7.6. Claude Code 외부 확장 (출력 스타일·명령·스킬) ──────
+# ── 7.3. Claude Code 외부 확장 (출력 스타일·명령·스킬) ──────
 # claude/extensions.txt 의 저장소를 DOTFILES_EXT_DIR(기본 ~/.local/share/dotfiles-ext)에 클론하고
 # ~/.claude 아래에 심볼릭 링크로 연결한다. 이미 클론돼 있으면 그대로 쓰고(갱신은 git pull), 실제 파일·폴더가 있는 자리는 건드리지 않는다.
 EXT_DIR="${DOTFILES_EXT_DIR:-$HOME/.local/share/dotfiles-ext}"
@@ -575,6 +680,61 @@ else
     deploy_symlink "$dir/$src" "$dst" "claude-ext-$(printf '%s' "$link" | tr '/' '-')"
   done < claude/extensions.txt
   info "Claude 외부 확장 연결 완료 (출력 스타일 선택: /style 또는 /config)"
+fi
+
+# ── 7.4. 웹 IDE (code-server) ──────────────────────────────
+# 서비스는 자동 시작하지 않는다. Linux/WSL 은 사용자 영역에 standalone 설치한다.
+code_server_config="$HOME/.config/code-server"
+mkdir -p "$code_server_config"
+if [ -d "$code_server_config" ] && [ ! -L "$code_server_config" ]; then
+  chmod 700 "$code_server_config"
+  if [ -f "$code_server_config/config.yaml" ] && [ ! -L "$code_server_config/config.yaml" ]; then
+    chmod 600 "$code_server_config/config.yaml"
+  fi
+fi
+if command -v code-server >/dev/null 2>&1 || [ -x "$HOME/.local/bin/code-server" ]; then
+  info "code-server 이미 설치됨 — 건너뜀"
+elif [ -e "$HOME/.local/bin/code-server" ] || [ -L "$HOME/.local/bin/code-server" ]; then
+  info "경고: ~/.local/bin/code-server 파일이 있지만 실행할 수 없어 기존 파일을 보존하고 설치를 건너뜀"
+elif [ "$OS" = "Darwin" ]; then
+  if brew list code-server >/dev/null 2>&1; then
+    info "code-server 이미 Homebrew 에 설치됨 — 건너뜀"
+  elif brew install code-server; then
+    record brew-installed.txt code-server
+    info "code-server 설치 완료 (서버는 자동 시작하지 않음)"
+  else
+    info "경고: code-server 설치 실패 — brew 상태를 확인한 뒤 재실행"
+  fi
+else
+  case "$(uname -m)" in
+    x86_64|aarch64|arm64)
+      code_server_tmp="$(mktemp -d)"
+      if curl -fsSL -o "$code_server_tmp/install.sh" https://code-server.dev/install.sh \
+        && XDG_CACHE_HOME="$code_server_tmp/cache" sh "$code_server_tmp/install.sh" \
+          --method standalone --prefix "$HOME/.local" > "$code_server_tmp/install.log" 2>&1; then
+        code_server_bin="$HOME/.local/bin/code-server"
+        if [ -x "$code_server_bin" ]; then
+          code_server_target="$(readlink -f "$code_server_bin" 2>/dev/null || true)"
+          code_server_dir="$(dirname "$(dirname "$code_server_target")")"
+          case "$code_server_dir" in
+            "$HOME"/.local/lib/code-server-*)
+              record bin-installed.txt "$code_server_bin"
+              record code-server-installed.txt "$code_server_dir"
+              info "code-server 설치 완료 (~/.local, 서버는 자동 시작하지 않음)" ;;
+            *)
+              info "경고: code-server 는 설치됐지만 버전 디렉터리를 확인하지 못해 --purge 기록을 남기지 못함" ;;
+          esac
+        else
+          info "경고: code-server 설치 스크립트는 종료됐지만 ~/.local/bin/code-server 를 확인하지 못함"
+        fi
+      else
+        if [ -s "$code_server_tmp/install.log" ]; then tail -n 3 "$code_server_tmp/install.log"; fi
+        info "경고: code-server 설치 실패 — 네트워크·운영체제 지원 여부를 확인한 뒤 재실행"
+      fi
+      rm -rf "$code_server_tmp" ;;
+    *)
+      info "경고: $(uname -m) 은 code-server standalone 릴리스 미지원 — 설치 건너뜀" ;;
+  esac
 fi
 
 # ── 8. 기본 셸 ─────────────────────────────────────────────
