@@ -60,5 +60,17 @@ alias grep='grep --color=auto'
 [ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
 
 # ── 플러그인 (syntax-highlighting 은 맨 마지막) ─────────────
-[ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ] && source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-[ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] && source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+# Debian 계열과 Arch/openSUSE/Alpine 계열의 패키지 경로를 함께 확인한다.
+for _plugin in \
+  /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+do
+  if [[ -f $_plugin ]]; then source "$_plugin"; break; fi
+done
+for _plugin in \
+  /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+  /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+do
+  if [[ -f $_plugin ]]; then source "$_plugin"; break; fi
+done
+unset _plugin

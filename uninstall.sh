@@ -58,6 +58,12 @@ restore_managed_file() {
 restore_managed_file "$HOME/.config/ai/hooks/session_handoff_guard.py" session-handoff-guard.py
 restore_managed_file "$HOME/.local/share/codex-statusbar/statusbar.py" codex-statusbar.py
 restore_managed_file "$HOME/.local/bin/codex-pretty" codex-pretty
+restore_managed_file "$HOME/.local/bin/codex" codex-bin
+restore_managed_file "$HOME/.local/bin/agent-hub" agent-hub-bin
+for skill_dir in "$HOME/.claude/skills" "$HOME/.gemini/antigravity-cli/skills" "${CODEX_HOME:-$HOME/.codex}/skills" "$HOME/.config/ai/skills"; do
+  skill_link_name="skills-link-$(basename "$(dirname "$skill_dir")")"
+  restore_managed_file "$skill_dir" "$skill_link_name"
+done
 for setting in claude.json agy.json gemini-cli.json codex.toml; do
   restore_managed_file "$HOME/.config/ai/settings/$setting" "agent-setting-$setting"
 done
@@ -93,7 +99,7 @@ if [ -n "${CODEX_HOME:-}" ] && [ "$CODEX_HOME" != "$HOME/.codex" ]; then
   restore_file "$CODEX_HOME/AGENTS.md" codex-home-agents.md
 fi
 
-# install.sh 7.5 — 터미널 파일 뷰어 설정과 piper 플러그인
+# install.sh 7.2 — 터미널 파일 뷰어 설정과 piper 플러그인
 restore_managed_file "$HOME/.local/bin/fview" fview
 restore_managed_file "$HOME/.config/yazi/yazi.toml" yazi.toml
 restore_managed_file "$HOME/.config/yazi/keymap.toml" yazi-keymap.toml
@@ -105,7 +111,7 @@ if [ -f "$BACKUP_DIR/yazi-piper.installed" ]; then
 fi
 rmdir "$HOME/.config/yazi/plugins" "$HOME/.config/yazi" 2>/dev/null || true
 
-# install.sh 7.6 — Claude 외부 확장 링크 (클론한 저장소는 --purge 때만 삭제)
+# install.sh 7.3 — Claude 외부 확장 링크 (클론한 저장소는 --purge 때만 삭제)
 while read -r repo slug src link; do
   case "$repo" in ''|'#'*) continue ;; esac
   restore_managed_file "$HOME/.claude/$link" "claude-ext-$(printf '%s' "$link" | tr '/' '-')"
@@ -270,7 +276,12 @@ for name in JetBrainsMono D2Coding; do
   if [ -f "$manifest" ]; then
     n=0
     while IFS= read -r f; do
-      [ -n "$f" ] && rm -f "$FONT_DIR/$f" && n=$((n+1))
+      case "$f" in
+        */*|""|.|..) info "경고: 폰트 manifest 경로가 파일명 형식이 아니라 건너뜀"; continue ;;
+        *.ttf|*.TTF|*.otf|*.OTF) ;;
+        *) info "경고: 폰트 manifest 항목이 글꼴 확장자가 아니라 건너뜀: $f"; continue ;;
+      esac
+      rm -f -- "$FONT_DIR/$f" && n=$((n+1))
     done < "$manifest"
     rm -f "$manifest" "$marker"
     info "Nerd Font $name 제거 ($n 파일)"
@@ -285,31 +296,100 @@ if [ "$OS" != "Darwin" ] && command -v fc-cache >/dev/null; then fc-cache -f "$F
 if [ "$PURGE" = 1 ]; then
   if [ "$OS" = "Darwin" ] && [ -s "$BACKUP_DIR/brew-installed.txt" ]; then
     while IFS= read -r pkg; do
-      [ -n "$pkg" ] && brew list "$pkg" >/dev/null 2>&1 && { info "brew uninstall $pkg"; brew uninstall "$pkg"; }
+      case "$pkg" in
+        [A-Za-z0-9]*)
+          case "$pkg" in *[!A-Za-z0-9+_.@-]*) info "경고: 잘못된 Homebrew manifest 항목을 건너뜀"; continue ;; esac ;;
+        *) info "경고: 잘못된 Homebrew manifest 항목을 건너뜀"; continue ;;
+      esac
+      brew list "$pkg" >/dev/null 2>&1 && { info "brew uninstall $pkg"; brew uninstall "$pkg"; }
     done < "$BACKUP_DIR/brew-installed.txt"
   fi
   if [ -s "$BACKUP_DIR/bin-installed.txt" ]; then
+    local_bin_real="$(cd "$HOME/.local/bin" 2>/dev/null && pwd -P || true)"
+    system_bin_real="$(cd /usr/local/bin 2>/dev/null && pwd -P || true)"
     while IFS= read -r bin; do
-      [ -f "$bin" ] || continue
-      if [ -w "$(dirname "$bin")" ]; then rm -f "$bin"; else sudo rm -f "$bin"; fi
-      info "삭제: $bin"
+      [ -f "$bin" ] || [ -L "$bin" ] || continue
+      bin_parent="$(cd "$(dirname "$bin")" 2>/dev/null && pwd -P || true)"
+      bin_name="$(basename "$bin")"
+      if [ -n "$local_bin_real" ] && [ "$bin_parent" = "$local_bin_real" ] \
+        && [[ "$bin_name" == starship || "$bin_name" == yazi || "$bin_name" == ya \
+          || "$bin_name" == glow || "$bin_name" == chafa || "$bin_name" == fview \
+          || "$bin_name" == code-server ]]; then
+        rm -f -- "$bin"
+        info "삭제: $bin"
+      elif [ "$bin" = /usr/local/bin/starship ] && [ "$bin_parent" = "$system_bin_real" ]; then
+        if [ -w "$bin_parent" ]; then rm -f -- "$bin"
+        elif command -v sudo >/dev/null 2>&1; then sudo rm -f -- "$bin"
+        else info "경고: 관리자 권한이 없어 $bin 제거 건너뜀"; continue; fi
+        info "삭제: $bin"
+      else
+        info "경고: 설치 허용 경로가 아닌 바이너리 manifest 항목을 건너뜀: $bin"
+      fi
     done < "$BACKUP_DIR/bin-installed.txt"
   fi
+  if [ -s "$BACKUP_DIR/code-server-installed.txt" ]; then
+    code_server_lib="$HOME/.local/lib"
+    code_server_lib_real="$(cd "$code_server_lib" 2>/dev/null && pwd -P || true)"
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      path_parent="$(cd "$(dirname "$path")" 2>/dev/null && pwd -P || true)"
+      path_name="$(basename "$path")"
+      if [ -n "$code_server_lib_real" ] && [ "$path_parent" = "$code_server_lib_real" ] \
+        && [[ "$path_name" == code-server-* ]] && [ -d "$path" ] && [ ! -L "$path" ]; then
+        rm -rf -- "$path"
+        info "code-server 제거: $path"
+      else
+        info "경고: code-server 제거 경로가 허용된 사용자 영역과 일치하지 않아 건너뜀: $path"
+      fi
+    done < "$BACKUP_DIR/code-server-installed.txt"
+  fi
   if [ "$OS" != "Darwin" ] && [ -s "$BACKUP_DIR/pkg-installed.txt" ]; then
-    pkgs="$(tr '\n' ' ' < "$BACKUP_DIR/pkg-installed.txt")"
-    info "패키지 제거: $pkgs"
-    if command -v dnf >/dev/null; then sudo dnf remove -y $pkgs || info "경고: dnf remove 실패"
-    elif command -v apt-get >/dev/null; then sudo apt-get remove -y $pkgs || info "경고: apt-get remove 실패"; fi
+    pkgs=()
+    while IFS= read -r pkg; do
+      case "$pkg" in
+        ""|-*|[!A-Za-z0-9]*|*[!A-Za-z0-9+_.:@-]*) info "경고: 잘못된 패키지 manifest 항목을 건너뜀" ;;
+        *) pkgs+=("$pkg") ;;
+      esac
+    done < "$BACKUP_DIR/pkg-installed.txt"
+    if [ "${#pkgs[@]}" -eq 0 ]; then
+      info "--purge: 제거할 수 있는 패키지 manifest 항목 없음"
+    else
+      info "설치 기록에 있는 패키지 제거: ${pkgs[*]}"
+      if [ "$(id -u)" -eq 0 ]; then SUDO=()
+      elif command -v sudo >/dev/null 2>&1; then SUDO=(sudo)
+      else SUDO=(false); fi
+      if command -v dnf >/dev/null; then "${SUDO[@]}" dnf remove -y "${pkgs[@]}" || info "경고: dnf remove 실패"
+      elif command -v apt-get >/dev/null; then "${SUDO[@]}" apt-get remove -y "${pkgs[@]}" || info "경고: apt-get remove 실패"
+      elif command -v pacman >/dev/null; then "${SUDO[@]}" pacman -Rns --noconfirm "${pkgs[@]}" || info "경고: pacman 제거 실패"
+      elif command -v zypper >/dev/null; then "${SUDO[@]}" zypper --non-interactive remove "${pkgs[@]}" || info "경고: zypper 제거 실패"
+      elif command -v apk >/dev/null; then "${SUDO[@]}" apk del "${pkgs[@]}" || info "경고: apk 제거 실패"
+      else info "경고: 지원 패키지 관리자를 찾지 못해 패키지 제거 건너뜀"; fi
+    fi
   fi
   if [ -s "$BACKUP_DIR/ext-cloned.txt" ]; then
+    ext_root="${DOTFILES_EXT_DIR:-$HOME/.local/share/dotfiles-ext}"
+    ext_root_real="$(cd "$ext_root" 2>/dev/null && pwd -P || true)"
     while IFS= read -r dir; do
-      [ -d "$dir/.git" ] || continue
-      rm -rf "$dir"
-      info "삭제: $dir"
+      [ -n "$dir" ] || continue
+      dir_parent="$(cd "$(dirname "$dir")" 2>/dev/null && pwd -P || true)"
+      dir_name="$(basename "$dir")"
+      allowed_repo=0
+      while read -r repo slug src link; do
+        case "$repo" in ''|'#'*) continue ;; esac
+        [ "$dir_name" = "$repo" ] && allowed_repo=1 && break
+      done < claude/extensions.txt
+      if [ "$allowed_repo" = 1 ] && [ -n "$ext_root_real" ] \
+        && [ "$dir_parent" = "$ext_root_real" ] && [ -d "$dir/.git" ] \
+        && [ ! -L "$dir" ] && [ ! -L "$dir/.git" ]; then
+        rm -rf -- "$dir"
+        info "삭제: $dir"
+      else
+        info "경고: Claude 확장 manifest 경로가 허용된 저장소 위치와 일치하지 않아 건너뜀: $dir"
+      fi
     done < "$BACKUP_DIR/ext-cloned.txt"
     rmdir "${DOTFILES_EXT_DIR:-$HOME/.local/share/dotfiles-ext}" 2>/dev/null || true
   fi
-  [ -s "$BACKUP_DIR/brew-installed.txt" ] || [ -s "$BACKUP_DIR/bin-installed.txt" ] || [ -s "$BACKUP_DIR/pkg-installed.txt" ] \
+  [ -s "$BACKUP_DIR/brew-installed.txt" ] || [ -s "$BACKUP_DIR/bin-installed.txt" ] || [ -s "$BACKUP_DIR/pkg-installed.txt" ] || [ -s "$BACKUP_DIR/code-server-installed.txt" ] \
     || info "--purge: install.sh 가 새로 설치한 패키지 기록 없음 (이미 있던 도구는 건드리지 않음)"
 else
   info "패키지(starship/eza/bat/zoxide/fzf/fd/플러그인)는 유지 — 제거하려면 --purge"

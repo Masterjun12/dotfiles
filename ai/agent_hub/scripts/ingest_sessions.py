@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 3사(Claude Code, Antigravity, OpenAI Codex) 세션 및 핸즈오프 통합 수집기
-- 대상 DB: agent_hub.db (기본 경로: /data4/shared/agent_hub/agent_hub.db 또는 ~/.config/ai/agent_hub.db)
+- 대상 DB: agent_hub.db (기본 경로: ~/.config/ai/agent_hub/agent_hub.db, AGENT_HUB_DIR/AGENT_HUB_DB로 재지정 가능)
 - 대화 세션 및 도구 실행, 핸즈오프 기록을 정규화하여 적재
 """
 
@@ -12,31 +12,60 @@ import json
 import sqlite3
 import datetime
 import tarfile
+import tempfile
 
-USER = os.environ.get("USER", "")
-DEFAULT_DB_DIR = "/data4/shared/agent_hub" if os.path.isdir("/data4/shared/agent_hub") else os.path.expanduser("~/.config/ai/agent_hub")
-DB_PATH = os.getenv("AGENT_HUB_DB", os.path.join(DEFAULT_DB_DIR, "agent_hub.db"))
 HOME = os.path.expanduser("~")
+
+
+def resolve_agent_hub_dir():
+    configured = os.environ.get("AGENT_HUB_DIR")
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    return os.path.join(HOME, ".config", "ai", "agent_hub")
+
+
+DEFAULT_DB_DIR = resolve_agent_hub_dir()
+DB_PATH = os.path.abspath(os.path.expanduser(
+    os.getenv("AGENT_HUB_DB", os.path.join(DEFAULT_DB_DIR, "agent_hub.db"))
+))
+HUB_DATA_DIR = os.path.dirname(DB_PATH)
 
 CLAUDE_PROJECTS_DIR = os.path.join(HOME, ".claude", "projects")
 AGY_BRAIN_DIR = os.path.join(HOME, ".gemini", "antigravity-cli", "brain")
 
-# Codex 세션 경로 (심볼릭 링크 또는 /data4 경로 자동 감지)
-CODEX_SESSIONS_DIR = os.path.join(HOME, ".codex", "sessions")
-if not os.path.exists(CODEX_SESSIONS_DIR) and USER and os.path.exists(f"/data4/{USER}/.codex/sessions"):
-    CODEX_SESSIONS_DIR = f"/data4/{USER}/.codex/sessions"
-
-CODEX_BACKUP_TAR = os.path.join(DEFAULT_DB_DIR, "backups", "codex_sessions_backup_20261026.tar.gz")
+CODEX_HOME = os.path.abspath(os.path.expanduser(os.environ.get("CODEX_HOME", "~/.codex")))
+CODEX_SESSIONS_DIR = os.path.join(CODEX_HOME, "sessions")
+CODEX_BACKUP_TAR = os.path.abspath(os.path.expanduser(os.environ.get(
+    "AGENT_HUB_CODEX_BACKUP_TAR",
+    os.path.join(HUB_DATA_DIR, "backups", "codex_sessions_backup.tar.gz"),
+)))
 HANDOFFS_DIR = os.path.join(HOME, ".config", "ai", "handoffs")
-LATEST_HANDOFF_MD = os.path.join(DEFAULT_DB_DIR, "LATEST_HANDOFF.md")
+LATEST_HANDOFF_MD = os.path.join(HUB_DATA_DIR, "LATEST_HANDOFF.md")
 
 
 def get_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30.0)
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
+    old_umask = os.umask(0o077)
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+    finally:
+        os.umask(old_umask)
     return conn
+
+
+def write_private_text(path, content):
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, mode=0o700, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def extract_codex_text(content):
@@ -60,7 +89,7 @@ def parse_and_insert_codex_stream(conn, file_obj, fname, mtime, cur):
     turns = []
     turn_idx = 0
     first_user = ""
-    project_path = "/data4/workspace"
+    project_path = HOME
     model_name = "codex-o3-mini"
     tool_calls = []
 
@@ -303,7 +332,7 @@ def ingest_agy_sessions(conn, limit_files=100):
         turns = []
         turn_idx = 0
         first_user = ""
-        project_path = "/data4"
+        project_path = HOME
         model_name = "gemini-3.8-flash"
 
         try:
@@ -424,36 +453,39 @@ def ingest_handoff_memories(conn):
             cur = conn.cursor()
             cur.execute("""
                 INSERT OR IGNORE INTO sessions (session_id, agent_type, project_path, started_at, ended_at, status, summary, updated_at)
-                VALUES (?, ?, '/data4/workspace', ?, ?, 'HANDOFF', ?, ?)
-            """, (sess_id, agent, mtime, mtime, work_done[:200] if work_done else "Handoff Snapshot", mtime))
+                VALUES (?, ?, ?, ?, ?, 'HANDOFF', ?, ?)
+            """, (sess_id, agent, HOME, mtime, mtime, work_done[:200] if work_done else "Handoff Snapshot", mtime))
 
             cur.execute("""
                 INSERT INTO handoffs (session_id, source_agent, cwd, work_done, created_at)
-                VALUES (?, ?, '/data4/workspace', ?, ?)
-            """, (sess_id, agent, work_done, mtime))
+                VALUES (?, ?, ?, ?, ?)
+            """, (sess_id, agent, HOME, work_done, mtime))
             conn.commit()
             count += 1
         except Exception:
             continue
 
     if latest_content:
-        with open(LATEST_HANDOFF_MD, "w", encoding="utf-8") as f:
-            f.write(latest_content)
+        write_private_text(LATEST_HANDOFF_MD, latest_content)
         print(f"[Ingest] Synced central {LATEST_HANDOFF_MD}")
 
     print(f"[Ingest] Ingested {count} handoff memories.")
 
 
 def main():
-    conn = get_db()
+    old_umask = os.umask(0o077)
     try:
-        ingest_claude_sessions(conn)
-        ingest_agy_sessions(conn)
-        ingest_codex_sessions(conn)
-        ingest_handoff_memories(conn)
-        print("[Ingest] All done successfully!")
+        conn = get_db()
+        try:
+            ingest_claude_sessions(conn)
+            ingest_agy_sessions(conn)
+            ingest_codex_sessions(conn)
+            ingest_handoff_memories(conn)
+            print("[Ingest] All done successfully!")
+        finally:
+            conn.close()
     finally:
-        conn.close()
+        os.umask(old_umask)
 
 
 if __name__ == "__main__":

@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
-# Codex CLI 래퍼 스크립트 (환경 자동 감지)
-export CODEX_HOME="${CODEX_HOME:-/data4/${USER:-a202520153}/.codex}"
-if [ ! -d "$CODEX_HOME" ]; then
-  export CODEX_HOME="$HOME/.codex"
+# DOTFILES_CODEX_WRAPPER=1
+# CODEX_HOME은 별도 지정이 없으면 Codex의 사용자 기본 경로를 사용한다.
+export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+
+wrapper_path="$0"
+case "$wrapper_path" in
+  /*) ;;
+  *) wrapper_path="$(command -v "$wrapper_path" 2>/dev/null || printf '%s' "$wrapper_path")" ;;
+esac
+wrapper_path="$(cd "$(dirname "$wrapper_path")" 2>/dev/null && pwd -P)/$(basename "$wrapper_path")"
+
+if [ -n "${CODEX_REAL_BIN:-}" ] && [ -x "$CODEX_REAL_BIN" ] && [ ! "$CODEX_REAL_BIN" -ef "$wrapper_path" ]; then
+  exec "$CODEX_REAL_BIN" "$@"
 fi
 
-# node-dist 경로 자동 감지
-for node_path in \
-  "/data4/backup/SDLC프로토/.tools/node-dist/node-v22.23.2-linux-x64/bin" \
-  "/data4/SDLC프로토/.tools/node-current/bin" \
-  "$HOME/.local/bin"; do
-  if [ -x "$node_path/codex" ] && [ "$node_path/codex" != "$0" ]; then
-    export PATH="$node_path:$PATH"
-    exec "$node_path/codex" "$@"
+IFS=: read -r -a path_dirs <<< "${PATH:-}"
+for path_dir in "${path_dirs[@]}"; do
+  [ -n "$path_dir" ] && [ "$path_dir" != "." ] || continue
+  candidate="$path_dir/codex"
+  if [ -x "$candidate" ] && [ ! "$candidate" -ef "$wrapper_path" ]; then
+    exec "$candidate" "$@"
   fi
 done
 
-# 기본 fallback
-exec codex "$@"
+printf '[codex wrapper] Codex CLI를 찾지 못했어요. CODEX_REAL_BIN으로 실행 파일 경로를 지정하세요.\n' >&2
+exit 127

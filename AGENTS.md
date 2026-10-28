@@ -12,16 +12,17 @@
 4. **Antigravity (agy) statusline** — `agy/statusline-command.sh` 와, `~/.gemini/antigravity-cli/settings.json` 의 `statusLine` 및 `ui.footer` 키.
 5. **Codex CLI status line** — `~/.codex/config.toml` 의 `[tui]` `status_line` 키. `codex/status-line.py`가 내장 항목을 관리하고, Linux/WSL의 `codex-pretty`는 tmux 2줄 보조 표시줄을 제공한다.
 6. **Global AI Agent Rules & Memory** — `ai/AGENTS.md` (SSOT), `ai/MEMORY.example.md` (~/.config/ai/MEMORY.md 템플릿).
+7. **code-server 웹 IDE** — macOS Homebrew 또는 Linux/WSL2 사용자 영역 설치. 없는 경우에만 설치하고 서비스는 자동 시작하지 않는다.
 
 이들을 `install.sh` 가 홈 디렉터리에 배치하고 `uninstall.sh` 가 설치 전 상태로 되돌린다. 프레임워크(oh-my-zsh 등)나 dotfile 매니저(stow, chezmoi)는 쓰지 않는다 — 셸 스크립트 두 개와 복사할 파일들이 전부다. 빌드·패키지·테스트 러너도 없다.
 
-대상 환경: macOS(Apple Silicon/Intel, Homebrew 필수), Linux(RHEL/Rocky 계열 `dnf`, Debian 계열 `apt-get`), Windows 는 WSL2 안에서만(Linux 경로를 그대로 쓴다). Git Bash/MSYS/Cygwin 은 지원하지 않고 0 단계에서 중단한다. 셸 스크립트는 bash, 배치되는 설정은 zsh.
+대상 환경: macOS(Apple Silicon/Intel, Homebrew 필수), Linux/WSL2(`dnf`, `apt-get`, `pacman`, `zypper`, `apk`). Git Bash/MSYS/Cygwin 은 지원하지 않고 0 단계에서 중단한다. 웹 IDE standalone 설치는 Linux x86_64/arm64만 지원한다. 셸 스크립트는 bash, 배치되는 설정은 zsh.
 
 ## 디렉터리와 파일별 역할
 
 | 경로 | 배치 위치 | 역할 |
 |---|---|---|
-| `install.sh` | — | 부트스트랩. 의존성 검사 → 패키지 → starship.toml → Nerd Fonts → zshrc → Claude statusline → agy statusline → Codex status line → Global AI rules → 터미널 파일 뷰어 → Claude 외부 확장 → chsh 안내 |
+| `install.sh` | — | 부트스트랩. 의존성 검사 → 패키지 → starship.toml → Nerd Fonts → zshrc → Claude statusline → agy statusline → Codex status line → Global AI rules → Agent Hub → 터미널 파일 뷰어 → Claude 외부 확장 → code-server → chsh 안내 |
 | `uninstall.sh` | — | `install.sh` 의 역연산. `--purge`(새로 설치한 패키지까지), `--keep-backup` |
 | `starship/starship.toml` | `~/.config/starship.toml` | 프롬프트 정의 |
 | `zsh/zshrc.macos` | `~/.zshrc` (Darwin) | brew 기반. `HOMEBREW_PREFIX` 자동 감지 |
@@ -32,11 +33,11 @@
 | `codex/status-line.py` | 배치 안 함 | `check`/`apply`/`restore`. `~/.codex/config.toml` 의 `[tui]` `status_line` 키만 편집. |
 | `ai/AGENTS.md` | `~/.config/ai/AGENTS.md` | 에이전트 공통 응답 규칙, DB 책임, 출력 절제 SSOT (~/.claude, ~/.gemini, ~/.codex 심볼릭 링크) |
 | `ai/MEMORY.example.md` | `~/.config/ai/MEMORY.md` | 머신별 서버/환경 메모리 템플릿 (미추적) |
-| `ai/agent_hub/` | `/data4/shared/agent_hub/` | 3사 공용 세션/핸즈오프 SQLite 스키마 및 agent-hub CLI |
-| `codex/bin/codex` | `~/.local/bin/codex` | 3사 실행 위치 통일용 Codex CLI 래퍼 스크립트 |
+| `ai/agent_hub/` | 기본 `~/.config/ai/agent_hub/`, `AGENT_HUB_DIR`로 변경 가능 | 3사 공용 세션/핸즈오프 SQLite 스키마 및 agent-hub CLI |
+| `codex/bin/codex` | `~/.local/bin/codex` | 기존 CLI가 없을 때만 설치하는 Codex 실행 래퍼. `CODEX_REAL_BIN` 또는 PATH에서 원본을 찾고 `CODEX_HOME`은 `~/.codex`를 기본값으로 사용 |
 | `viewer/fview` | `~/.local/bin/fview` | 확장자별 미리보기 변환기. 도구가 없으면 원문으로 폴백. bash 3.2(macOS)에서도 동작 |
 | `viewer/yazi.toml`, `viewer/keymap.toml` | `~/.config/yazi/` | yazi 미리보기·열기를 `fview` 에 연결, 미리보기 스크롤 키 |
-| `claude/extensions.txt` | 배치 안 함 | 7.6 단계가 읽는 외부 확장 목록. install·uninstall 이 같은 목록을 쓴다. 외부 본문은 복제하지 않는다 |
+| `claude/extensions.txt` | 배치 안 함 | 7.3 단계가 읽는 외부 확장 목록. install·uninstall 이 같은 목록을 쓴다. 외부 본문은 복제하지 않는다 |
 | `scripts/test-codex-status-line.sh` | — | 위 스크립트의 임시 `HOME` 왕복 시험 |
 | `scripts/test-windows-paths.sh` | — | Git Bash 거부(어느 OS 에서나)와 WSL 폰트 건너뛰기(Linux 에서만) 시험 |
 | `.gitignore` | — | 머신별·시크릿 파일명 차단 |
@@ -65,7 +66,10 @@
 ## 불변 규칙 (스크립트를 고칠 때)
 
 - **멱등**: `install.sh`·`uninstall.sh` 는 몇 번을 재실행해도 결과가 같아야 한다. 패키지는 없을 때만 설치하고, 파일은 내용이 다를 때만 덮어쓴다.
+- **개인 데이터 권한**: 설치 스크립트는 `umask 077`을 쓰며 기본 `~/.config/ai`, Agent Hub, 핸즈오프, 설치 백업은 사용자만 접근할 수 있게 유지한다. Agent Hub DB와 메모리 파일은 `0600`, 전용 디렉터리는 `0700`으로 둔다. `AGENT_HUB_DIR` 사용자 지정 경로는 다른 공용 디렉터리 권한을 바꾸지 않고 DB 파일만 `0600`으로 제한한다.
+- code-server 기본 설정 폴더와 `config.yaml`은 각각 `0700`·`0600`으로 제한한다. 심볼릭 링크로 연결된 사용자 설정 경로는 chmod 대상에서 제외한다.
 - **실패는 변경 전에**: 의존성 검사(0 단계)에서 실패하면 `~/.dotfiles-backup` 을 포함해 홈에 아무것도 만들지 않는다. 새 전제 조건은 0 단계에 추가한다.
+- **기존 설치 건너뛰기**: 명령·패키지·플러그인 파일·폰트 마커·code-server 경로를 확인한 뒤 없는 항목만 설치한다. Agent Hub DB는 Python 표준 SQLite로 새로 만들고 기존 DB는 보존한다.
 - **덮어쓰기 전 백업**: 홈 파일 배치는 반드시 `deploy_file` 을 거친다(최초 원본을 `.orig`/`.absent` 로 기록 → 내용이 다르면 `.bak` → 복사). `cp` 직접 호출 금지. 최초 기록은 재실행 때 갱신하지 않는다.
 - **`settings.json` 은 키 단위 merge**: 상태줄·이 저장소의 훅·AGY 어댑터 활성화 키만 병합한다. 그 밖의 설정값은 `settings/` 템플릿으로 제공하며 기존 권한·모델은 바꾸지 않는다. 쓰기는 같은 디렉터리의 임시 파일 + `os.replace` 로 원자적으로, 기존 mode 를 보존한다. 깨진 JSON 이면 손대지 않고 중단한다.
 - **`config.toml` 도 키 단위 merge**: `[tui]` 의 `status_line` 외에는 읽거나 바꾸지 않는다. TOML writer 가 없으므로 그 키의 줄만 교체하고 나머지는 바이트 그대로 둔다. `tomllib` 이 있으면 쓰기 전에 "`status_line` 외에는 같다"를 검증하고, 깨진 TOML·미지원 표기면 손대지 않고 중단한다. `install.sh` 와 `uninstall.sh` 가 같은 파서를 쓰도록 로직은 `codex/status-line.py` 한 곳에만 둔다. 3사 설정·역할 어댑터를 첫 실행에 함께 준비하며 CLI 자체는 설치하지 않는다.
