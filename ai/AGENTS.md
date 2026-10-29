@@ -81,11 +81,11 @@
 - 작업 중 새로 확인된 시스템 사실(호스트 사양, 영속 마운트, 서비스 포트, 도구 바이너리 위치), 환경 설정 변경, CLI별 고유 제약 및 해결책을 발견하거나 변경했을 때는 다음 턴으로 미루지 않고 **즉시 `~/.config/ai/MEMORY.md`에 수시로 기록·갱신**한다.
 - 메모리는 다음 세션 및 다른 에이전트가 중복 탐색이나 동일 시행착오 없이 즉시 작업할 수 있도록 핵심 사실만 최신 상태로 유지한다(개인 토큰·비밀번호 등 보안 민감 정보는 절대 기록 금지).
 
-## 세션 한도 임계치 기반 자동 핸즈오프 메모리 규칙 (AGY 50% / Claude·Codex 30%)
+## 세션 한도 임계치 기반 자동 핸즈오프 메모리 규칙 (AGY·Codex 50% / Claude 30%)
 
 - **Antigravity (`agy`) — 잔여 한도 50% 이하 자동 핸즈오프:** 자기 세션의 컨텍스트 윈도우 또는 활성 모델 쿼터 잔여 한도가 **50% 이하**로 내려가면 전역 훅(`~/.gemini/config/hooks.json` 및 `~/.claude/statusline-command.sh` → `~/.config/ai/hooks/session_handoff_guard.py --agent agy`)이 자동 실행되어 `~/.config/ai/handoffs/HANDOFF_agy_<session_id>.md`, 로컬 `LATEST_HANDOFF.md`, Agent Hub DB에 상태를 기록한다.
 - **Claude Code — 잔여 컨텍스트 30% 이하 자동 핸즈오프:** 세션별 statusline 스냅샷으로 확인한 잔여량이 **30% 이하**일 때 `UserPromptSubmit`·`Stop` 훅이 알림을 주입하고 Agent Hub DB에 기록한다.
-- **OpenAI Codex (`codex`) — 잔여 한도 30% 이하 자동 핸즈오프:** 자기 세션의 컨텍스트 윈도우 또는 레이트 리밋 잔여 한도가 **30% 이하**로 내려가면 전역 훅(`~/.codex/hooks.json` → `~/.config/ai/hooks/session_handoff_guard.py --agent codex`)이 자동 실행되어 `~/.config/ai/handoffs/HANDOFF_codex_<session_id>.md`, 로컬 `LATEST_HANDOFF.md`, Agent Hub DB에 상태를 기록한다.
+- **OpenAI Codex (`codex`) — 잔여 한도 50% 이하 자동 핸즈오프:** 자기 세션의 컨텍스트 윈도우 또는 레이트 리밋 잔여 한도가 **50% 이하**로 내려가면 전역 훅(`~/.codex/hooks.json` → `~/.config/ai/hooks/session_handoff_guard.py --agent codex`)이 자동 실행되어 `~/.config/ai/handoffs/HANDOFF_codex_<session_id>.md`, 로컬 `LATEST_HANDOFF.md`, Agent Hub DB에 상태를 기록한다.
 - Agent Hub 기본 위치는 `~/.config/ai/agent_hub/agent_hub.db`다. 기본 디렉터리는 `0700`, DB 파일은 `0600`이며 대화 기록은 암호화되지 않는다. 다른 저장 위치를 쓰면 에이전트가 실행되는 환경에 `AGENT_HUB_DIR` 또는 `AGENT_HUB_DB`를 지정하고, 해당 폴더 권한도 사용자 전용으로 관리한다.
 - `[AUTO-HANDOFF TRIGGER]` 알림을 받은 세션은 진행 상황·미결 이슈·검증 결과·다음 행동을 핸즈오프 메모리와 `~/.config/ai/MEMORY.md`에 보완하고, 답변 마지막 줄에 `[자동 핸즈오프 알림: 잔여 한도 OO% 도달로 공용 허브에 인계를 완료했습니다]`를 명시한다.
 - **후속 세션 인계 의무:** 새로 시작하거나 작업을 이어받는 모든 에이전트는 `~/.config/ai/MEMORY.md`와 `~/.config/ai/handoffs/LATEST_HANDOFF.md`를 확인한다. 3사의 과거 대화나 수정한 코드는 `agent-hub search <키워드>`로 검색한다.
