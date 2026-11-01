@@ -3,7 +3,7 @@
 Global Automatic Session Handoff Memory Guard for Claude Code, Antigravity (AGY), and OpenAI Codex.
 - Claude threshold: <= 30.0% remaining context (from its session-specific statusline snapshot)
 - AGY threshold:    <= 50.0% remaining (context window or active model quota)
-- Codex threshold:  <= 30.0% remaining (context window or 5h/weekly rate limit)
+- Codex threshold:  <= 50.0% remaining (context window or 5h/weekly rate limit)
 """
 import argparse
 import datetime
@@ -679,7 +679,7 @@ def main():
         return
 
     if args.agent == "codex":
-        threshold = threshold_for("codex", 30.0)
+        threshold = threshold_for("codex", 50.0)
         info = extract_codex_metrics_and_recent(payload)
         triggered = info["effective_rem"] <= threshold
         event_name = payload.get("hook_event_name") or ""

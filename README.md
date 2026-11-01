@@ -291,7 +291,7 @@ AGY는 `~/.gemini/config/plugins/dotfiles-agent-adapters/agents/*.md`와 플러�
 
 핸즈오프 훅은 `ai/hooks/session_handoff_guard.py`를 배치한다.
 AGY는 컨텍스트 또는 현재 모델 쿼터 잔여량 50% 이하, Claude는 컨텍스트 30% 이하,
-Codex는 컨텍스트 또는 5시간/주간 한도 30% 이하에서 기록한다.
+Codex는 컨텍스트 또는 5시간/주간 한도 50% 이하에서 기록한다.
 `AI_HANDOFF_AGY_THRESHOLD`, `AI_HANDOFF_CLAUDE_THRESHOLD`, `AI_HANDOFF_CODEX_THRESHOLD`로 임계치를 바꿀 수 있다.
 AGY는 PreInvocation·Stop, Claude·Codex는 UserPromptSubmit·Stop에 연결한다.
 Claude·AGY 상태줄은 세션별 실제 사용량을 전달한다.

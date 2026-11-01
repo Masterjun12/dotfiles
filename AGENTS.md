@@ -124,7 +124,7 @@ git grep -nIE '([0-9]{1,3}\.){3}[0-9]{1,3}|/Users/[a-z0-9]+|/home/[a-z0-9]+|glpa
 
 ## 3사 설정 확장
 
-- `ai/hooks/session_handoff_guard.py`: AGY 50%, Claude·Codex 30% 기준의 세션별 실제 수치·핸즈오프. 추정 사용량과 다른 세션의 최신 로그를 사용하지 않는다.
+- `ai/hooks/session_handoff_guard.py`: AGY·Codex 50%, Claude 30% 기준의 세션별 실제 수치·핸즈오프. 추정 사용량과 다른 세션의 최신 로그를 사용하지 않는다.
 - `scripts/agent-config.py`: 훅·플러그인 키 병합/복원 기록, 개인 설정 보존.
 - `ai/agents/`: 10개 역할의 Claude·Codex·AGY 어댑터. 업무 절차 SSOT인 외부 스킬 본문은 복제하지 않는다.
 - `settings/`: 3사 설정의 공개 가능한 템플릿. 인증·서버·훅 승인 상태를 포함하지 않는다.
